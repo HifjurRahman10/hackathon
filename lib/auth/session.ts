@@ -3,9 +3,9 @@ import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 import { NewUser } from '@/lib/db/schema';
 
-const key = new TextEncoder().encode(process.env.AUTH_SECRET);
+const key = new TextEncoder().encode(process.env.SUPABASE_JWT_SECRET);
 const SALT_ROUNDS = 10;
-
+pnmp 
 export async function hashPassword(password: string) {
   return hash(password, SALT_ROUNDS);
 }

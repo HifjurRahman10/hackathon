@@ -2,91 +2,100 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Loader2 } from 'lucide-react';
 
-export default function ContentAutomationUI() {
+export default function VideoDashboard() {
+  const [currentProject, setCurrentProject] = useState<{ id: number; name: string } | null>(null);
+  const [projects, setProjects] = useState([
+    { id: 1, name: 'My First Project' },
+    { id: 2, name: 'Travel Video' },
+  ]);
   const [prompt, setPrompt] = useState('');
-  const [script, setScript] = useState('');
-  const [imagePrompts, setImagePrompts] = useState<string[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
-
-  const handleGenerate = () => {
-    setIsGenerating(true);
-
-    // Placeholder: Use real API call in production
-    setTimeout(() => {
-      setScript('Scene 1: A child wakes up in a small village and dreams of becoming an adventurer.\nScene 2: The child sees a poster about a grand quest and runs out excited.\nScene 3: The journey begins through a misty forest.');
-      setImagePrompts([
-        'A small rural village at dawn, soft lighting, peaceful',
-        'A child looking at a quest poster with excitement in their eyes',
-        'A misty forest trail with sunlight piercing through trees',
-      ]);
-      setIsGenerating(false);
-    }, 1000);
-  };
 
   return (
-    <section className="flex-1 p-4 lg:p-8 max-w-4xl mx-auto space-y-8">
-      <h1 className="text-2xl font-semibold">Content Automation Studio</h1>
+    <div className="flex h-[calc(100vh-68px)] bg-white">
+      
+      {/* Left Sidebar */}
+      <aside className="w-64 border-r border-gray-200 p-4 flex flex-col">
+        <Button 
+          className="mb-4 bg-orange-500 hover:bg-orange-600 text-white" 
+          onClick={() => setCurrentProject(null)}
+        >
+          + New Project
+        </Button>
+        <div className="flex-1 overflow-y-auto space-y-2">
+          {projects.map((p) => (
+            <Button
+              key={p.id}
+              variant={currentProject?.id === p.id ? 'secondary' : 'ghost'}
+              className="w-full justify-start"
+              onClick={() => setCurrentProject(p)}
+            >
+              {p.name}
+            </Button>
+          ))}
+        </div>
+      </aside>
 
-      {/* Step 1: Prompt Input */}
-      <Card>
-        <CardHeader>
-          <CardTitle>1. Enter Your Idea</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="E.g. An animated story about a kid discovering a magic forest"
-            rows={4}
-          />
-          <Button onClick={handleGenerate} disabled={isGenerating}>
-            {isGenerating ? (
-              <>
-                <Loader2 className="animate-spin mr-2 h-4 w-4" /> Generating...
-              </>
-            ) : (
-              'Generate Script & Frames'
-            )}
-          </Button>
-        </CardContent>
-      </Card>
+      {/* Center Area */}
+      <main className="flex-1 p-4 overflow-auto">
+        {currentProject ? (
+          <div className="h-full flex flex-col">
+            <h2 className="text-lg font-semibold mb-4">{currentProject.name}</h2>
+            <div className="flex-1 border border-gray-300 rounded-lg p-4 bg-gray-50 flex items-center justify-center">
+              {/* Video timeline placeholder */}
+              <p className="text-gray-500">[ Video Editing Timeline Here ]</p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center h-full">
+            <h2 className="text-xl font-semibold mb-4">Create a New Project</h2>
+            <Textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Describe your video idea..."
+              className="w-full max-w-lg mb-4"
+              rows={4}
+            />
+            <Button 
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+              onClick={() => {
+                const newProject = { id: Date.now(), name: 'Untitled Project' };
+                setProjects([...projects, newProject]);
+                setCurrentProject(newProject);
+              }}
+            >
+              Generate Project
+            </Button>
+          </div>
+        )}
+      </main>
 
-      {/* Step 2: Script Output */}
-      {script && (
-        <Card>
-          <CardHeader>
-            <CardTitle>2. Generated Script</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <pre className="text-sm whitespace-pre-wrap text-muted-foreground bg-gray-100 p-4 rounded-md">
-              {script}
-            </pre>
-          </CardContent>
-        </Card>
+      {/* Right Sidebar */}
+      {currentProject && (
+        <aside className="w-80 border-l border-gray-200 p-4 flex flex-col">
+          <div className="flex-1 overflow-y-auto">
+            <p className="text-gray-500 mb-4">AI Assistant</p>
+            {/* AI chat messages placeholder */}
+            <div className="mb-4 space-y-2">
+              <div className="bg-gray-100 p-2 rounded">Try adding a forest scene.</div>
+              <div className="bg-orange-100 p-2 rounded self-end">Good idea!</div>
+            </div>
+          </div>
+          <div className="mt-auto">
+            <Input
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Ask AI..."
+              className="mb-2"
+            />
+            <Button className="bg-orange-500 hover:bg-orange-600 text-white w-full">
+              Send
+            </Button>
+          </div>
+        </aside>
       )}
-
-      {/* Step 3: Frame Prompts */}
-      {imagePrompts.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>3. Image Prompts for Scenes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="list-disc list-inside space-y-2">
-              {imagePrompts.map((imgPrompt, idx) => (
-                <li key={idx} className="text-muted-foreground">
-                  {imgPrompt}
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
-    </section>
+    </div>
   );
 }

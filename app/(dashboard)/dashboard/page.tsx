@@ -162,12 +162,12 @@ export default function VideoDashboard() {
       }
       disabled={loading}
       className="flex-1 min-w-0"
-    />
-    <Button onClick={sendMessage} disabled={loading}>
+        />
+        <Button onClick={sendMessage} disabled={loading}>
       {loading ? '...' : 'Send'}
-    </Button>
-  </div>
-</div>
+        </Button>
+        </div>
+    </div>
     </div>
   );
 }

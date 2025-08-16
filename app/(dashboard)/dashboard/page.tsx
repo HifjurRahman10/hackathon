@@ -117,57 +117,57 @@ export default function VideoDashboard() {
       </div>
 
       {/* Main chat area */}
-      <div className="flex-1 relative bg-white">
-        {/* Chat messages */}
-        <div className="overflow-y-auto p-4 pb-32 space-y-4 h-full">
-          {activeChat.messages.length === 0 && (
-            <p className="text-gray-400 text-center">
-              Start chatting with the assistant...
-            </p>
-          )}
-          {activeChat.messages.map((m, i) => (
-            <div
-              key={i}
-              className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`px-4 py-2 rounded-2xl max-w-[75%] whitespace-pre-line ${
-                  m.role === 'user'
-                    ? 'bg-blue-600 text-white rounded-br-sm'
-                    : 'bg-gray-100 text-gray-900 rounded-bl-sm'
-                }`}
-              >
-                {m.content}
-              </div>
-            </div>
-          ))}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="px-4 py-2 rounded-2xl bg-gray-100 text-gray-500">
-                <span className="animate-pulse">Assistant is typing…</span>
-              </div>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-
-        {/* Floating input area */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type a message..."
-            onKeyDown={(e) =>
-              e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendMessage())
-            }
-            disabled={loading}
-            className="flex-1 min-w-0"
-          />
-          <Button onClick={sendMessage} disabled={loading}>
-            {loading ? '...' : 'Send'}
-          </Button>
+      <div className="flex-1 relative bg-white flex flex-col">
+  {/* Chat messages */}
+  <div className="flex-1 overflow-y-auto p-4 pb-32">
+    {activeChat.messages.length === 0 && (
+      <p className="text-gray-400 text-center mt-10">
+        Start chatting with the assistant...
+      </p>
+    )}
+    {activeChat.messages.map((m, i) => (
+      <div
+        key={i}
+        className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} mb-2`}
+      >
+        <div
+          className={`px-4 py-2 rounded-2xl max-w-[75%] whitespace-pre-line ${
+            m.role === 'user'
+              ? 'bg-blue-600 text-white rounded-br-sm'
+              : 'bg-gray-100 text-gray-900 rounded-bl-sm'
+          }`}
+        >
+          {m.content}
         </div>
       </div>
+    ))}
+    {loading && (
+      <div className="flex justify-start mb-2">
+        <div className="px-4 py-2 rounded-2xl bg-gray-100 text-gray-500">
+          <span className="animate-pulse">Assistant is typing…</span>
+        </div>
+      </div>
+    )}
+    <div ref={bottomRef} />
+  </div>
+
+  {/* Floating input area */}
+  <div className="sticky bottom-0 left-0 right-0 p-4 bg-white border-t flex gap-2 z-10">
+    <Input
+      value={input}
+      onChange={(e) => setInput(e.target.value)}
+      placeholder="Type a message..."
+      onKeyDown={(e) =>
+        e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendMessage())
+      }
+      disabled={loading}
+      className="flex-1 min-w-0"
+    />
+    <Button onClick={sendMessage} disabled={loading}>
+      {loading ? '...' : 'Send'}
+    </Button>
+  </div>
+</div>
     </div>
   );
 }

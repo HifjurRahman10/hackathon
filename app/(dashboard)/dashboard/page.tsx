@@ -156,21 +156,24 @@ export default function VideoDashboard() {
           <div ref={bottomRef} />
         </div>
 
+       
         {/* Input */}
-        <div className="flex gap-2 mt-4">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Message the assistant..."
-            onKeyDown={(e) =>
-              e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendMessage())
-            }
-            disabled={loading}
-          />
-          <Button onClick={sendMessage} disabled={loading}>
-            {loading ? '...' : 'Send'}
-          </Button>
-        </div>
+<div className="flex gap-2 mt-4 w-full">
+  <Input
+    value={input}
+    onChange={(e) => setInput(e.target.value)}
+    placeholder="Message the assistant..."
+    onKeyDown={(e) =>
+      e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendMessage())
+    }
+    disabled={loading}
+    className="flex-1 min-w-0" // <-- make input shrink properly
+  />
+  <Button onClick={sendMessage} disabled={loading}>
+    {loading ? '...' : 'Send'}
+  </Button>
+</div>
+
       </div>
     </div>
   );

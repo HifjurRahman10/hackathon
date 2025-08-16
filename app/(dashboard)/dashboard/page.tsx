@@ -165,14 +165,14 @@ export default function VideoDashboard() {
       {/* Main chat area */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <div className="border-b border-gray-200 px-4 py-3 bg-white">
+        <div className="border-b border-gray-200 px-4 py-3 bg-white flex-shrink-0">
           <h1 className="text-lg font-medium text-gray-900">
-            {activeChat.title === 'New Chat' ? 'ChatGPT' : activeChat.title}
+            {activeChat.title === 'New Chat' ? 'AI Assistant' : activeChat.title}
           </h1>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto min-h-0">
           {activeChat.messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center p-8">
               <div className="mb-8">
@@ -236,14 +236,14 @@ export default function VideoDashboard() {
         </div>
 
         {/* Input area */}
-        <div className="border-t border-gray-200 p-4 bg-white">
+        <div className="border-t border-gray-200 p-4 bg-white flex-shrink-0">
           <div className="max-w-3xl mx-auto">
             <div className="relative flex items-end gap-2">
               <div className="flex-1 relative">
                 <Input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder="Message ChatGPT..."
+                  placeholder="Message AI Assistant..."
                   onKeyDown={(e) =>
                     e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendMessage())
                   }
@@ -261,7 +261,7 @@ export default function VideoDashboard() {
               </div>
             </div>
             <p className="text-xs text-gray-500 mt-2 text-center">
-              ChatGPT can make mistakes. Consider checking important information.
+              AI can make mistakes. Consider checking important information.
             </p>
           </div>
         </div>

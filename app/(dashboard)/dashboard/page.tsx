@@ -26,7 +26,6 @@ export default function VideoDashboard() {
 
   const activeChat = chats.find((c) => c.id === activeChatId)!;
 
-  // Auto-scroll on new message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeChat.messages]);
@@ -118,9 +117,9 @@ export default function VideoDashboard() {
       </div>
 
       {/* Main chat area */}
-      <div className="flex flex-col flex-1 bg-white">
+      <div className="flex-1 relative bg-white">
         {/* Chat messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="overflow-y-auto p-4 pb-32 space-y-4 h-full">
           {activeChat.messages.length === 0 && (
             <p className="text-gray-400 text-center">
               Start chatting with the assistant...
@@ -152,8 +151,8 @@ export default function VideoDashboard() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Input */}
-        <div className="flex gap-2 p-4 border-t">
+        {/* Floating input area */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t flex gap-2">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}

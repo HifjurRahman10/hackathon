@@ -109,10 +109,10 @@ export default function VideoDashboard() {
   }
 
   return (
-    <div className="flex h-screen bg-white text-gray-900">
+    <div className="flex h-screen bg-white text-gray-900 overflow-hidden">
       {/* Sidebar */}
-      <div className="w-64 transition-all duration-200 border-r border-gray-200 flex flex-col bg-gray-50">
-        <div className="p-3 border-b border-gray-200">
+      <div className="w-64 flex-shrink-0 border-r border-gray-200 flex flex-col bg-gray-50">
+        <div className="p-3 border-b border-gray-200 flex-shrink-0">
           <Button 
             onClick={startNewChat} 
             className="w-full bg-gray-900 hover:bg-gray-800 text-white rounded-lg py-2.5"
@@ -163,10 +163,9 @@ export default function VideoDashboard() {
       </div>
 
       {/* Main chat area */}
-      <div className="flex-1 flex flex-col h-screen">
-
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto" style={{ height: 'calc(100vh - 80px)' }}>
+        <div className="flex-1 overflow-y-auto">
           {activeChat.messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center p-8">
               <div className="mb-8">
@@ -179,7 +178,7 @@ export default function VideoDashboard() {
             </div>
           )}
 
-          <div className="max-w-3xl mx-auto">
+          <div className="w-full max-w-none">
             {activeChat.messages.map((m, i) => (
               <div
                 key={i}
@@ -187,18 +186,20 @@ export default function VideoDashboard() {
                   m.role === 'assistant' ? 'bg-gray-50' : 'bg-white'
                 } border-b border-gray-100 last:border-b-0`}
               >
-                <div className="flex gap-4">
-                  <div className="flex-shrink-0">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${
-                      m.role === 'user' ? 'bg-blue-500' : 'bg-gray-700'
-                    }`}>
-                      {m.role === 'user' ? 'U' : 'AI'}
+                <div className="max-w-3xl mx-auto">
+                  <div className="flex gap-4">
+                    <div className="flex-shrink-0">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${
+                        m.role === 'user' ? 'bg-blue-500' : 'bg-gray-700'
+                      }`}>
+                        {m.role === 'user' ? 'U' : 'AI'}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="prose prose-gray max-w-none">
-                      <div className="whitespace-pre-wrap break-words text-gray-900 leading-7">
-                        {m.content}
+                    <div className="flex-1 min-w-0">
+                      <div className="prose prose-gray max-w-none">
+                        <div className="whitespace-pre-wrap break-words text-gray-900 leading-7">
+                          {m.content}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -208,17 +209,19 @@ export default function VideoDashboard() {
 
             {loading && (
               <div className="px-4 py-6 bg-gray-50 border-b border-gray-100">
-                <div className="flex gap-4">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-700 text-white text-sm font-medium">
-                      AI
+                <div className="max-w-3xl mx-auto">
+                  <div className="flex gap-4">
+                    <div className="flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-700 text-white text-sm font-medium">
+                        AI
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1 text-gray-600">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1 text-gray-600">
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -229,21 +232,35 @@ export default function VideoDashboard() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Input area */}
-        <div className="border-t border-gray-200 p-4 bg-white flex-shrink-0">
-          <div className="max-w-3xl mx-auto">
-            <div className="relative flex items-end gap-2">
-              <div className="flex-1 relative">
-                <Input
+        {/* Input area - Fixed */}
+        <div className="border-t border-gray-200 bg-white flex-shrink-0">
+          <div className="p-4">
+            <div className="max-w-3xl mx-auto">
+              <div className="relative">
+                <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="Message AI Assistant..."
-                  onKeyDown={(e) =>
-                    e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendMessage())
-                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      sendMessage();
+                    }
+                  }}
                   disabled={loading}
-                  className="pr-12 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none min-h-[44px]"
-                  style={{ paddingTop: '12px', paddingBottom: '12px' }}
+                  rows={1}
+                  className="w-full resize-none rounded-xl border border-gray-300 px-4 py-3 pr-12 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  style={{
+                    minHeight: '44px',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    lineHeight: '1.5'
+                  }}
+                  onInput={(e) => {
+                    const target = e.target as HTMLTextAreaElement;
+                    target.style.height = '44px';
+                    target.style.height = Math.min(target.scrollHeight, 200) + 'px';
+                  }}
                 />
                 <Button
                   onClick={sendMessage}
@@ -253,10 +270,10 @@ export default function VideoDashboard() {
                   <ArrowUp className="h-4 w-4" />
                 </Button>
               </div>
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                AI can make mistakes. Consider checking important information.
+              </p>
             </div>
-            <p className="text-xs text-gray-500 mt-2 text-center">
-              AI can make mistakes. Consider checking important information.
-            </p>
           </div>
         </div>
       </div>

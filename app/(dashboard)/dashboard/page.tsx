@@ -160,19 +160,26 @@ export default function VideoDashboard() {
             </div>
           ))}
         </div>
+
+        {/* User Avatar at bottom */}
+        <div className="border-t border-gray-200 p-3">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
+              U
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 truncate">User</p>
+              <p className="text-xs text-gray-500">Online</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Main chat area */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="border-b border-gray-200 px-4 py-3 bg-white flex-shrink-0">
-          <h1 className="text-lg font-medium text-gray-900">
-            {activeChat.title === 'New Chat' ? 'AI Assistant' : activeChat.title}
-          </h1>
-        </div>
+      <div className="flex-1 flex flex-col h-screen">
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="flex-1 overflow-y-auto" style={{ height: 'calc(100vh - 80px)' }}>
           {activeChat.messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center p-8">
               <div className="mb-8">

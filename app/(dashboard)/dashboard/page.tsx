@@ -111,7 +111,7 @@ export default function VideoDashboard() {
   return (
     <div className="flex h-screen bg-white text-gray-900 overflow-hidden">
       {/* Sidebar */}
-      <div className="w-64 flex-shrink-0 border-r border-gray-200 flex flex-col bg-gray-50">
+      <div className="w-64 flex-shrink-0 border-r border-gray-200 flex flex-col bg-gray-50 h-full">
         <div className="p-3 border-b border-gray-200 flex-shrink-0">
           <Button 
             onClick={startNewChat} 
@@ -163,9 +163,9 @@ export default function VideoDashboard() {
       </div>
 
       {/* Main chat area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto">
+<div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
+        {/* Messages - Full height */}
+        <div className="flex-1 overflow-y-auto pb-20">
           {activeChat.messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-center p-8">
               <div className="mb-8">
@@ -232,11 +232,11 @@ export default function VideoDashboard() {
           <div ref={bottomRef} />
         </div>
 
-        {/* Input area - Fixed */}
-        <div className="border-t border-gray-200 bg-white flex-shrink-0">
+        {/* Floating Input area */}
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-white via-white to-transparent pt-6">
           <div className="p-4">
             <div className="max-w-3xl mx-auto">
-              <div className="relative">
+              <div className="relative bg-white rounded-2xl shadow-lg border border-gray-200">
                 <textarea
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
@@ -249,23 +249,23 @@ export default function VideoDashboard() {
                   }}
                   disabled={loading}
                   rows={1}
-                  className="w-full resize-none rounded-xl border border-gray-300 px-4 py-3 pr-12 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  className="w-full resize-none rounded-2xl border-0 px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-0 disabled:bg-gray-50 disabled:cursor-not-allowed"
                   style={{
-                    minHeight: '44px',
+                    minHeight: '48px',
                     maxHeight: '200px',
                     overflowY: 'auto',
                     lineHeight: '1.5'
                   }}
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement;
-                    target.style.height = '44px';
+                    target.style.height = '48px';
                     target.style.height = Math.min(target.scrollHeight, 200) + 'px';
                   }}
                 />
                 <Button
                   onClick={sendMessage}
                   disabled={loading || !input.trim()}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0 rounded-lg bg-gray-900 hover:bg-gray-700 disabled:bg-gray-300"
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0 rounded-lg bg-gray-900 hover:bg-gray-700 disabled:bg-gray-300 disabled:hover:bg-gray-300"
                 >
                   <ArrowUp className="h-4 w-4" />
                 </Button>

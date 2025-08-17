@@ -165,117 +165,126 @@ export default function VideoDashboard() {
       {/* Main chat area */}
 <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
         {/* Messages - Full height */}
-        <div className="flex-1 overflow-y-auto pb-20">
-          {activeChat.messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full text-center p-8">
-              <div className="mb-8">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 mx-auto">
-                  <MessageSquare className="h-8 w-8 text-gray-600" />
-                </div>
-                <h2 className="text-2xl font-medium text-gray-900 mb-2">How can I help you today?</h2>
-                <p className="text-gray-600">Start a conversation and I'll do my best to help</p>
-              </div>
-            </div>
-          )}
+        {/* Messages - Full height */}
+<div className="flex-1 overflow-y-auto">
+  {activeChat.messages.length === 0 && (
+    <div className="flex flex-col items-center justify-center h-full text-center p-8">
+      <div className="mb-8">
+        <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 mx-auto">
+          <MessageSquare className="h-8 w-8 text-gray-600" />
+        </div>
+        <h2 className="text-2xl font-medium text-gray-900 mb-2">
+          How can I help you today?
+        </h2>
+        <p className="text-gray-600">
+          Start a conversation and I'll do my best to help
+        </p>
+      </div>
+    </div>
+  )}
 
-          <div className="w-full max-w-none">
-            {activeChat.messages.map((m, i) => (
+  <div className="w-full max-w-none">
+    {activeChat.messages.map((m, i) => (
+      <div
+        key={i}
+        className={`group px-4 py-6 ${
+          m.role === 'assistant' ? 'bg-gray-50' : 'bg-white'
+        } border-b border-gray-100 last:border-b-0`}
+      >
+        <div className="max-w-3xl mx-auto">
+          <div className="flex gap-4">
+            <div className="flex-shrink-0">
               <div
-                key={i}
-                className={`group px-4 py-6 ${
-                  m.role === 'assistant' ? 'bg-gray-50' : 'bg-white'
-                } border-b border-gray-100 last:border-b-0`}
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${
+                  m.role === 'user' ? 'bg-blue-500' : 'bg-gray-700'
+                }`}
               >
-                <div className="max-w-3xl mx-auto">
-                  <div className="flex gap-4">
-                    <div className="flex-shrink-0">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${
-                        m.role === 'user' ? 'bg-blue-500' : 'bg-gray-700'
-                      }`}>
-                        {m.role === 'user' ? 'U' : 'AI'}
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="prose prose-gray max-w-none">
-                        <div className="whitespace-pre-wrap break-words text-gray-900 leading-7">
-                          {m.content}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                {m.role === 'user' ? 'U' : 'AI'}
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="prose prose-gray max-w-none">
+                <div className="whitespace-pre-wrap break-words text-gray-900 leading-7">
+                  {m.content}
                 </div>
               </div>
-            ))}
-
-            {loading && (
-              <div className="px-4 py-6 bg-gray-50 border-b border-gray-100">
-                <div className="max-w-3xl mx-auto">
-                  <div className="flex gap-4">
-                    <div className="flex-shrink-0">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-700 text-white text-sm font-medium">
-                        AI
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1 text-gray-600">
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div ref={bottomRef} />
-        </div>
-
-        {/* Floating Input area */}
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-white via-white to-transparent pt-6">
-          <div className="p-4">
-            <div className="max-w-3xl mx-auto">
-              <div className="relative bg-white rounded-2xl shadow-lg border border-gray-200">
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="Message AI Assistant..."
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage();
-                    }
-                  }}
-                  disabled={loading}
-                  rows={1}
-                  className="w-full resize-none rounded-2xl border-0 px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-0 disabled:bg-gray-50 disabled:cursor-not-allowed"
-                  style={{
-                    minHeight: '48px',
-                    maxHeight: '200px',
-                    overflowY: 'auto',
-                    lineHeight: '1.5'
-                  }}
-                  onInput={(e) => {
-                    const target = e.target as HTMLTextAreaElement;
-                    target.style.height = '48px';
-                    target.style.height = Math.min(target.scrollHeight, 200) + 'px';
-                  }}
-                />
-                <Button
-                  onClick={sendMessage}
-                  disabled={loading || !input.trim()}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0 rounded-lg bg-gray-900 hover:bg-gray-700 disabled:bg-gray-300 disabled:hover:bg-gray-300"
-                >
-                  <ArrowUp className="h-4 w-4" />
-                </Button>
-              </div>
-              <p className="text-xs text-gray-500 mt-2 text-center">
-                AI can make mistakes. Consider checking important information.
-              </p>
             </div>
           </div>
         </div>
+      </div>
+    ))}
+
+    {loading && (
+      <div className="px-4 py-6 bg-gray-50 border-b border-gray-100">
+        <div className="max-w-3xl mx-auto">
+          <div className="flex gap-4">
+            <div className="flex-shrink-0">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-gray-700 text-white text-sm font-medium">
+                AI
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1 text-gray-600">
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                <div
+                  className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                  style={{ animationDelay: '0.1s' }}
+                ></div>
+                <div
+                  className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                  style={{ animationDelay: '0.2s' }}
+                ></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+
+  <div ref={bottomRef} />
+</div>
+
+{/* Floating Input area */}
+<div className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200">
+  <div className="max-w-3xl mx-auto p-3">
+    <div className="relative bg-white rounded-xl shadow-sm border border-gray-200">
+      <textarea
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        placeholder="Message AI Assistant..."
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+          }
+        }}
+        disabled={loading}
+        rows={1}
+        className="w-full resize-none rounded-xl border-0 px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-0 disabled:bg-gray-50 disabled:cursor-not-allowed"
+        style={{
+          minHeight: '48px',
+          maxHeight: '200px',
+          overflowY: 'auto',
+          lineHeight: '1.5',
+        }}
+        onInput={(e) => {
+          const target = e.target as HTMLTextAreaElement;
+          target.style.height = '48px';
+          target.style.height = Math.min(target.scrollHeight, 200) + 'px';
+        }}
+      />
+      <Button
+        onClick={sendMessage}
+        disabled={loading || !input.trim()}
+        className="absolute right-2 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0 rounded-lg bg-gray-900 hover:bg-gray-700 disabled:bg-gray-300 disabled:hover:bg-gray-300"
+      >
+        <ArrowUp className="h-4 w-4" />
+      </Button>
+    </div>
+  </div>
+</div>
+
       </div>
     </div>
   );

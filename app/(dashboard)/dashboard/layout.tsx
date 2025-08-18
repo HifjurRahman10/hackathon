@@ -20,7 +20,7 @@ export default function DashboardLayout({
       <div className="flex flex-1 overflow-hidden h-full">
 
         {/* Main content */}
-<main className="flex h-screen mb-10px">{children}</main>
+<main className="flex-1 overflow-y-auto p-0 lg:p-4 h-full">{children}</main>
       </div>
     </div>
   );

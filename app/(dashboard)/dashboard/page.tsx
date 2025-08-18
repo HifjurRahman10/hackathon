@@ -96,7 +96,7 @@ export default function VideoDashboard() {
   }
 
   return (
-    <div className="flex h-full overflow-hidden -m-4 lg:-m-4">
+    <div className="flex h-full overflow-hidden">
       {/* Sidebar */}
       <div className="w-64 bg-gray-100 border-r flex flex-col">
         <div className="p-4 flex-shrink-0">

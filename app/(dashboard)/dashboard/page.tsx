@@ -96,15 +96,15 @@ export default function VideoDashboard() {
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-full overflow-hidden -m-4 lg:-m-4">
       {/* Sidebar */}
-      <div className="w-64 bg-gray-100 border-r">
-        <div className="p-4">
+      <div className="w-64 bg-gray-100 border-r flex flex-col">
+        <div className="p-4 flex-shrink-0">
           <Button onClick={startNewChat} className="w-full">
             New Chat
           </Button>
         </div>
-        <div className="p-4 space-y-2">
+        <div className="flex-1 p-4 space-y-2 overflow-y-auto">
           {chats.map((chat) => (
             <Button
               key={chat.id}
@@ -119,8 +119,8 @@ export default function VideoDashboard() {
       </div>
 
       {/* Message Section */}
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+      <div className="flex-1 flex flex-col">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {activeChat.messages.length === 0 && (
             <p className="text-center text-gray-500">Start a conversation...</p>
           )}
@@ -153,7 +153,7 @@ export default function VideoDashboard() {
           <div ref={bottomRef} />
         </div>
 
-        <div className="border-t p-4 flex gap-2">
+        <div className="border-t p-4 flex gap-2 flex-shrink-0">
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -169,7 +169,6 @@ export default function VideoDashboard() {
           </Button>
         </div>
       </div>
-    
     </div>
   );
 }

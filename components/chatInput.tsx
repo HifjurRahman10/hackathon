@@ -12,27 +12,27 @@ export default function ChatInput({
 }: {
   userId: string;
   loading: boolean;
-  onSend: (text: string, files: string[]) => void;
+  onSend: (text: string, files: { path: string; signedUrl: string }[]) => void;
 }) {
   const [input, setInput] = useState("");
-  const [uploads, setUploads] = useState<{ name: string; path: string; url: string }[]>([]);
+  const [uploads, setUploads] = useState<{ name: string; path: string; signedUrl: string }[]>([]);
   const [uploading, setUploading] = useState(false);
 
   async function handleFile(file: File) {
     setUploading(true);
 
     const filePath = `${userId}/${Date.now()}-${file.name}`;
-    const { error } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from("user_uploads")
       .upload(filePath, file);
 
-    if (error) {
-      alert("Upload failed: " + error.message);
+    if (uploadError) {
+      alert("Upload failed: " + uploadError.message);
       setUploading(false);
       return;
     }
 
-    // save metadata in DB
+    // Save metadata in DB
     await fetch("/api/files", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -44,15 +44,30 @@ export default function ChatInput({
       }),
     });
 
-    const { data } = supabase.storage.from("user_uploads").getPublicUrl(filePath);
+    // Generate signed URL
+    const { data: signedData, error: signedError } = await supabase.storage
+      .from("user_uploads")
+      .createSignedUrl(filePath, 3600);
 
-    setUploads((prev) => [...prev, { name: file.name, path: filePath, url: data.publicUrl }]);
+    if (signedError || !signedData) {
+      alert("Failed to get signed URL: " + signedError?.message);
+      setUploading(false);
+      return;
+    }
+
+    setUploads((prev) => [...prev, { name: file.name, path: filePath, signedUrl: signedData.signedUrl }]);
     setUploading(false);
   }
 
   function handleSend() {
     if (!input.trim() && uploads.length === 0) return;
-    onSend(input, uploads.map((f) => f.path));
+
+    // send files with signed URLs
+    onSend(
+      input,
+      uploads.map((f) => ({ path: f.path, signedUrl: f.signedUrl }))
+    );
+
     setInput("");
     setUploads([]);
   }
@@ -68,10 +83,10 @@ export default function ChatInput({
         <div className="flex gap-3 mb-3 flex-wrap">
           {uploads.map((file) => (
             <div key={file.path} className="relative w-24 h-24 border rounded-lg overflow-hidden">
-              {file.name.match(/\\.(mp4|mov|avi)$/i) ? (
-                <video src={file.url} className="w-full h-full object-cover" />
+              {file.name.match(/\.(mp4|mov|avi)$/i) ? (
+                <video src={file.signedUrl} className="w-full h-full object-cover" controls />
               ) : (
-                <img src={file.url} className="w-full h-full object-cover" />
+                <img src={file.signedUrl} className="w-full h-full object-cover" />
               )}
               <button
                 onClick={() => handleRemove(file.path)}

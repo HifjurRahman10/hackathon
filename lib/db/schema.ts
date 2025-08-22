@@ -8,6 +8,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
+
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   name: varchar('name', { length: 100 }),
@@ -90,6 +91,17 @@ export const invitationsRelations = relations(invitations, ({ one }) => ({
   }),
 }));
 
+export const files = pgTable("files", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  teamId: integer("team_id").references(() => teams.id),
+  path: text("path").notNull(), // Supabase storage path (e.g. userId/file.png)
+  name: varchar("name", { length: 255 }),
+  type: varchar("type", { length: 50 }),
+  size: integer("size"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
   user: one(users, {
     fields: [teamMembers.userId],
@@ -122,6 +134,7 @@ export type ActivityLog = typeof activityLogs.$inferSelect;
 export type NewActivityLog = typeof activityLogs.$inferInsert;
 export type Invitation = typeof invitations.$inferSelect;
 export type NewInvitation = typeof invitations.$inferInsert;
+export type FileRecord = typeof files.$inferSelect;
 export type TeamDataWithMembers = Team & {
   teamMembers: (TeamMember & {
     user: Pick<User, 'id' | 'name' | 'email'>;

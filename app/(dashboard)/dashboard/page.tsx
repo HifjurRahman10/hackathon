@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Plus, MessageCircle, X } from 'lucide-react';
+import ChatInput from "@/components/chatInput";
 
 type Message = {
   role: 'user' | 'assistant';

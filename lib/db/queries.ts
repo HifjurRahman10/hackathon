@@ -5,28 +5,31 @@ import type { User } from './schema';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth/session';
 import type { Session } from '@supabase/supabase-js';
+import { ensureSupabaseIdColumn } from './setup';
 
 export async function getUser(): Promise<User | null> {
+  await ensureSupabaseIdColumn();
+
   const sessionCookie = (await cookies()).get('session');
-  if (!sessionCookie?.value) {
-    return null;
-  }
+  if (!sessionCookie?.value) return null;
 
   const sessionData = await verifyToken(sessionCookie.value);
-  if (!sessionData?.user?.id) {
-    return null;
+  if (!sessionData?.user?.id) return null;
+  const supabaseId = sessionData.user.id;
+
+  try {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(and(eq(users.supabaseId, supabaseId), isNull(users.deletedAt)))
+      .limit(1);
+    if (user) return user;
+  } catch (e: any) {
+    if (e.code !== '42703') throw e;
+    // Column absent: fallback email-based (unsafe but temporary)
   }
 
-  const [user] = await db
-    .select()
-    .from(users)
-    .where(and(
-      eq(users.supabaseId, sessionData.user.id),
-      isNull(users.deletedAt)
-    ))
-    .limit(1);
-
-  return user || null;
+  return null;
 }
 
 export async function getTeamByStripeCustomerId(customerId: string) {

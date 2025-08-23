@@ -5,6 +5,8 @@ import readline from 'node:readline';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
+import { db } from './drizzle';
+import { sql } from 'drizzle-orm';
 
 const execAsync = promisify(exec);
 
@@ -191,6 +193,20 @@ async function writeEnvFile(envVars: Record<string, string>) {
 
   await fs.writeFile(path.join(process.cwd(), '.env'), envContent);
   console.log('.env file created with the necessary variables.');
+}
+
+let ran = false;
+
+export async function ensureSupabaseIdColumn() {
+  if (ran) return;
+  ran = true;
+  try {
+    await db.execute(
+      sql`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "supabase_id" text UNIQUE;`
+    );
+  } catch {
+    // ignore
+  }
 }
 
 async function main() {

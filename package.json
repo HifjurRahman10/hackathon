@@ -1,14 +1,14 @@
 {
+  "name": "hackathon",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "pnpm run migrate && next build",
+    "dev": "next dev",
+    "build": "next build",
     "start": "next start",
-    "db:setup": "npx tsx lib/db/setup.ts",
-    "db:seed": "npx tsx lib/db/seed.ts",
-    "generate": "drizzle-kit generate",
+    "lint": "next lint",
     "migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.3",

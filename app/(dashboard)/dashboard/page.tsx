@@ -2,16 +2,15 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Plus, MessageCircle, X } from 'lucide-react';
 import ChatInput from "@/components/chatInput";
 import { supabase } from '@/lib/supabase/client';
 
-type FileData = { path: string; signedUrl: string };
-
 type Message = {
   role: 'user' | 'assistant';
   content: string;
-  files?: FileData[];
+  files?: { path: string; signedUrl: string }[];
 };
 
 type Chat = {
@@ -23,6 +22,7 @@ type Chat = {
 export default function VideoDashboard() {
   const [chats, setChats] = useState<Chat[]>([{ id: 0, title: 'New Chat', messages: [] }]);
   const [activeChatId, setActiveChatId] = useState(0);
+  const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -39,7 +39,7 @@ export default function VideoDashboard() {
 
   function startNewChat() {
     const newId = Math.max(...chats.map(c => c.id), -1) + 1;
-    const newChat: Chat = { id: newId, title: 'New Chat', messages: [] };
+    const newChat = { id: newId, title: 'New Chat', messages: [] };
     setChats(prev => [newChat, ...prev]);
     setActiveChatId(newId);
   }
@@ -53,27 +53,44 @@ export default function VideoDashboard() {
     }
   }
 
-  async function sendMessage(updatedMessages: { role: 'user' | 'assistant'; content: string }[]) {
-    if (!updatedMessages[updatedMessages.length - 1].content.trim()) return;
+  async function sendMessage() {
+    if (!input.trim()) return;
 
+    const newMessage: Message = { role: 'user', content: input };
+    const updatedMessages = [...activeChat.messages, newMessage];
+
+    updateChat(activeChatId, { messages: updatedMessages });
+    setInput('');
     setLoading(true);
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: updatedMessages }),
+        body: JSON.stringify({ messages: updatedMessages.map(m => ({ role: m.role, content: m.content })) }),
       });
+
+      if (!res.ok) {
+        const { error } = await res.json();
+        updateChat(activeChatId, {
+          messages: [...updatedMessages, { role: 'assistant', content: `⚠️ Error: ${error}` }],
+        });
+        return;
+      }
 
       const data = await res.json();
       const reply = data.choices?.[0]?.message?.content || '⚠️ No response from assistant.';
 
       updateChat(activeChatId, {
-        messages: [...activeChat.messages, { role: 'assistant', content: reply }]
+        messages: [...updatedMessages, { role: 'assistant', content: reply }],
+        title: activeChat.title === 'New Chat' && newMessage.content.length > 0
+          ? newMessage.content.slice(0, 30) + (newMessage.content.length > 30 ? '...' : '')
+          : activeChat.title,
       });
     } catch (err) {
-      console.error(err);
+      console.error('Fetch error:', err);
       updateChat(activeChatId, {
-        messages: [...activeChat.messages, { role: 'assistant', content: '⚠️ Network error. Please try again.' }]
+        messages: [...updatedMessages, { role: 'assistant', content: '⚠️ Network error. Please try again.' }],
       });
     } finally {
       setLoading(false);
@@ -100,10 +117,8 @@ export default function VideoDashboard() {
                 </button>
 
                 {chats.length > 1 && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); deleteChat(chat.id); }}
-                    className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-100 rounded"
-                  >
+                  <button onClick={(e) => { e.stopPropagation(); deleteChat(chat.id); }}
+                    className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-100 rounded">
                     <X size={14} className="text-red-500" />
                   </button>
                 )}
@@ -139,10 +154,10 @@ export default function VideoDashboard() {
             {activeChat.messages.map((message, index) => (
               <div key={index} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[70%] px-4 py-3 rounded-2xl ${message.role === 'user' ? 'bg-blue-600 text-white rounded-br-md' : 'bg-gray-100 text-gray-800 rounded-bl-md'}`}>
-                  {/* Message Text */}
+                  {/* Message text */}
                   <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
 
-                  {/* Message Files */}
+                  {/* Render files */}
                   {message.files && message.files.length > 0 && (
                     <div className="flex gap-2 mt-2 flex-wrap">
                       {message.files.map(file =>
@@ -162,9 +177,9 @@ export default function VideoDashboard() {
               <div className="flex justify-start">
                 <div className="bg-gray-100 px-4 py-3 rounded-2xl rounded-bl-md">
                   <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                   </div>
                 </div>
               </div>
@@ -174,19 +189,17 @@ export default function VideoDashboard() {
           </div>
         </div>
 
-        {/* Chat Input */}
+        {/* Input Area */}
         <ChatInput
-          userId={String(activeChatId)}
           loading={loading}
           onSend={(text, files) => {
             const newMessage: Message = { role: 'user', content: text, files };
             const updatedMessages = [...activeChat.messages, newMessage];
-
-            // update local chat
             updateChat(activeChatId, { messages: updatedMessages });
 
-            // only send text to OpenAI
-            sendMessage(updatedMessages.map(m => ({ role: m.role, content: m.content })));
+            // Only send text to OpenAI
+            setInput(text);
+            sendMessage();
           }}
         />
       </div>

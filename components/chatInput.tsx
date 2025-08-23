@@ -1,90 +1,72 @@
-"use client";
+'use client';
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Paperclip, X } from "lucide-react";
 
 export default function ChatInput({
-  userId,
   loading,
   onSend,
 }: {
-  userId: string;
   loading: boolean;
   onSend: (text: string, files: { path: string; signedUrl: string }[]) => void;
 }) {
   const [input, setInput] = useState("");
-  const [uploads, setUploads] = useState<{ name: string; path: string; signedUrl: string }[]>([]);
+  const [uploads, setUploads] = useState<{ path: string; signedUrl: string }[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Get current logged-in user
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) setUserId(data.user.id);
+    });
+  }, []);
 
   async function handleFile(file: File) {
-    setUploading(true);
+    if (!userId) return alert("User not authenticated");
 
+    setUploading(true);
     const filePath = `${userId}/${Date.now()}-${file.name}`;
-    const { error: uploadError } = await supabase.storage
-      .from("users_uploads")
+
+    // Upload file to Supabase storage
+    const { error } = await supabase.storage
+      .from("user_uploads")
       .upload(filePath, file);
 
-    if (uploadError) {
-      alert("Upload failed: " + uploadError.message);
+    if (error) {
+      alert("Upload failed: " + error.message);
       setUploading(false);
       return;
     }
 
-    // Save metadata in DB
-    await fetch("/api/files", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        path: filePath,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-      }),
-    });
+    // Generate public URL
+    const { data } = supabase.storage.from("user_uploads").getPublicUrl(filePath);
 
-    // Generate signed URL
-    const { data: signedData, error: signedError } = await supabase.storage
-      .from("users_uploads")
-      .createSignedUrl(filePath, 3600);
-
-    if (signedError || !signedData) {
-      alert("Failed to get signed URL: " + signedError?.message);
-      setUploading(false);
-      return;
-    }
-
-    setUploads((prev) => [...prev, { name: file.name, path: filePath, signedUrl: signedData.signedUrl }]);
+    setUploads(prev => [...prev, { path: filePath, signedUrl: data.publicUrl }]);
     setUploading(false);
   }
 
   function handleSend() {
     if (!input.trim() && uploads.length === 0) return;
-
-    // send files with signed URLs
-    onSend(
-      input,
-      uploads.map((f) => ({ path: f.path, signedUrl: f.signedUrl }))
-    );
-
+    onSend(input, uploads);
     setInput("");
     setUploads([]);
   }
 
   function handleRemove(path: string) {
-    setUploads((prev) => prev.filter((f) => f.path !== path));
+    setUploads(prev => prev.filter(f => f.path !== path));
   }
 
   return (
     <div className="border-t border-gray-200 bg-white p-4">
-      {/* File previews */}
       {uploads.length > 0 && (
         <div className="flex gap-3 mb-3 flex-wrap">
-          {uploads.map((file) => (
+          {uploads.map(file => (
             <div key={file.path} className="relative w-24 h-24 border rounded-lg overflow-hidden">
-              {file.name.match(/\.(mp4|mov|avi)$/i) ? (
-                <video src={file.signedUrl} className="w-full h-full object-cover" controls />
+              {file.path.match(/\.(mp4|mov|avi)$/i) ? (
+                <video src={file.signedUrl} className="w-full h-full object-cover" />
               ) : (
                 <img src={file.signedUrl} className="w-full h-full object-cover" />
               )}
@@ -99,7 +81,6 @@ export default function ChatInput({
         </div>
       )}
 
-      {/* Input row */}
       <div className="flex items-end gap-2">
         <label className="cursor-pointer">
           <input

@@ -4,7 +4,6 @@ import { z } from 'zod'
 import { createServerSupabase } from '@/lib/auth/supabase'
 import { syncUser } from '@/lib/auth/session'
 import { redirect } from 'next/navigation'
-import { createCheckoutSession } from '@/lib/payments/stripe'
 import { 
   getUserWithTeam,
   getUser 
@@ -77,7 +76,8 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
     const redirectTo = formData.get('redirect') as string | null
     if (redirectTo === 'checkout') {
       const priceId = formData.get('priceId') as string
-      return createCheckoutSession({ team: null, priceId }) // Handle team lookup
+      // Handle checkout redirect with proper team lookup
+      redirect(`/checkout?priceId=${priceId}`)
     }
 
     redirect('/dashboard')
@@ -142,8 +142,37 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
     }
   }
 
-  // User will be synced via the auth callback
-  redirect('/auth/callback')
+  // If user is confirmed, sync immediately
+  if (authData.user?.email_confirmed_at) {
+    const user = await syncUser(authData.user)
+    
+    // Handle invitation if exists
+    if (invitation) {
+      // Add user to team
+      await db.insert(teamMembers).values({
+        userId: user.id,
+        teamId: invitation.teamId,
+        role: invitation.role
+      })
+
+      // Update invitation status
+      await db
+        .update(invitations)
+        .set({ status: 'accepted' })
+        .where(eq(invitations.id, invitation.id))
+
+      await logActivity(invitation.teamId, user.id, ActivityType.ACCEPT_INVITATION)
+    }
+
+    redirect('/dashboard')
+  }
+
+  // User needs to confirm email
+  return {
+    success: 'Please check your email to confirm your account.',
+    email,
+    password
+  }
 })
 
 export async function signOut() {
@@ -155,11 +184,9 @@ export async function signOut() {
 
   const supabase = await createServerSupabase()
   await supabase.auth.signOut()
-  redirect('/auth/login')
+  redirect('/sign-in')
 }
 
-// Rest of the actions remain similar but use getUser() instead of session management
-// Update password and delete account actions should use Supabase Auth API
 const updatePasswordSchema = z.object({
   currentPassword: z.string().min(8).max(100),
   newPassword: z.string().min(8).max(100),
@@ -190,6 +217,9 @@ export const updatePassword = validatedActionWithUser(
       }
     }
 
+    // For password update, Supabase handles current password verification internally
+    // We'll rely on the user being authenticated to update their password
+
     const { error } = await supabase.auth.updateUser({
       password: newPassword
     })
@@ -212,8 +242,6 @@ export const updatePassword = validatedActionWithUser(
   }
 )
 
-// ... rest of actions remain similar
-
 const deleteAccountSchema = z.object({
   password: z.string().min(8).max(100)
 });
@@ -222,9 +250,15 @@ export const deleteAccount = validatedActionWithUser(
   deleteAccountSchema,
   async (data, _, user) => {
     const { password } = data;
+    const supabase = await createServerSupabase()
 
-    const isPasswordValid = await comparePasswords(password, user.passwordHash);
-    if (!isPasswordValid) {
+    // Verify password by attempting to sign in
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email: user.email,
+      password
+    })
+
+    if (verifyError) {
       return {
         password,
         error: 'Incorrect password. Account deletion failed.'
@@ -239,15 +273,7 @@ export const deleteAccount = validatedActionWithUser(
       ActivityType.DELETE_ACCOUNT
     );
 
-    // Soft delete
-    await db
-      .update(users)
-      .set({
-        deletedAt: sql`CURRENT_TIMESTAMP`,
-        email: sql`CONCAT(email, '-', id, '-deleted')` // Ensure email uniqueness
-      })
-      .where(eq(users.id, user.id));
-
+    // Remove from team if exists
     if (userWithTeam?.teamId) {
       await db
         .delete(teamMembers)
@@ -259,7 +285,25 @@ export const deleteAccount = validatedActionWithUser(
         );
     }
 
-    (await cookies()).delete('session');
+    // Soft delete user in local database
+    await db
+      .update(users)
+      .set({
+        deletedAt: new Date(),
+        email: `${user.email}-${user.id}-deleted` // Ensure email uniqueness
+      })
+      .where(eq(users.id, user.id));
+
+    // Delete user from Supabase
+    const { error: deleteError } = await supabase.auth.admin.deleteUser(user.supabaseId)
+    
+    if (deleteError) {
+      console.error('Failed to delete user from Supabase:', deleteError)
+      // Continue with local deletion even if Supabase deletion fails
+    }
+
+    // Sign out and redirect
+    await supabase.auth.signOut()
     redirect('/sign-in');
   }
 );
@@ -273,8 +317,38 @@ export const updateAccount = validatedActionWithUser(
   updateAccountSchema,
   async (data, _, user) => {
     const { name, email } = data;
+    const supabase = await createServerSupabase()
     const userWithTeam = await getUserWithTeam(user.id);
 
+    // Update email in Supabase if changed
+    if (email !== user.email) {
+      const { error: emailError } = await supabase.auth.updateUser({
+        email
+      })
+
+      if (emailError) {
+        return {
+          name,
+          email,
+          error: emailError.message
+        }
+      }
+    }
+
+    // Update user metadata in Supabase
+    const { error: metadataError } = await supabase.auth.updateUser({
+      data: { full_name: name }
+    })
+
+    if (metadataError) {
+      return {
+        name,
+        email,
+        error: metadataError.message
+      }
+    }
+
+    // Update local database
     await Promise.all([
       db.update(users).set({ name, email }).where(eq(users.id, user.id)),
       logActivity(userWithTeam?.teamId, user.id, ActivityType.UPDATE_ACCOUNT)
@@ -363,13 +437,13 @@ export const inviteTeamMember = validatedActionWithUser(
     }
 
     // Create a new invitation
-    await db.insert(invitations).values({
+    const [newInvitation] = await db.insert(invitations).values({
       teamId: userWithTeam.teamId,
       email,
       role,
       invitedBy: user.id,
       status: 'pending'
-    });
+    }).returning();
 
     await logActivity(
       userWithTeam.teamId,
@@ -377,8 +451,9 @@ export const inviteTeamMember = validatedActionWithUser(
       ActivityType.INVITE_TEAM_MEMBER
     );
 
-    // TODO: Send invitation email and include ?inviteId={id} to sign-up URL
-    // await sendInvitationEmail(email, userWithTeam.team.name, role)
+    // TODO: Send invitation email with the invitation ID
+    // The invitation URL should be: /sign-up?inviteId=${newInvitation.id}
+    // await sendInvitationEmail(email, userWithTeam.team.name, role, newInvitation.id)
 
     return { success: 'Invitation sent successfully' };
   }

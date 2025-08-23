@@ -1,7 +1,7 @@
 import { createServerSupabase, createAdminSupabase } from './supabase'
 import { db } from '@/lib/db/drizzle'
-import { users } from '@/lib/db/schema'
-import { eq } from 'drizzle-orm'
+import { users, teamMembers, invitations } from '@/lib/db/schema'
+import { eq, and } from 'drizzle-orm'
 import type { User } from '@supabase/supabase-js'
 
 export async function getUser() {
@@ -30,8 +30,6 @@ export async function signOut() {
 
 // Helper to sync Supabase user with local database
 export async function syncUser(supabaseUser: User) {
-  const adminSupabase = createAdminSupabase()
-  
   // Check if user exists in local database
   const [existingUser] = await db
     .select()
@@ -40,6 +38,18 @@ export async function syncUser(supabaseUser: User) {
     .limit(1)
 
   if (!existingUser) {
+    // Check if this is an invited user
+    const [invitation] = await db
+      .select()
+      .from(invitations)
+      .where(
+        and(
+          eq(invitations.email, supabaseUser.email!),
+          eq(invitations.status, 'pending')
+        )
+      )
+      .limit(1)
+
     // Create user in local database
     const [newUser] = await db
       .insert(users)
@@ -47,12 +57,48 @@ export async function syncUser(supabaseUser: User) {
         supabaseId: supabaseUser.id,
         email: supabaseUser.email!,
         name: supabaseUser.user_metadata?.full_name || supabaseUser.email!.split('@')[0],
-        role: 'owner', // Default role
+        role: invitation.length > 0 ? invitation[0].role : 'owner', // If invited, use invitation role
       })
       .returning()
 
     return newUser
   }
 
-  return existingUser
+  // Update existing user with latest info from Supabase
+  const [updatedUser] = await db
+    .update(users)
+    .set({
+      name: supabaseUser.user_metadata?.full_name || existingUser.name,
+      email: supabaseUser.email || existingUser.email,
+    })
+    .where(eq(users.id, existingUser.id))
+    .returning()
+
+  return updatedUser
+}
+
+// Helper to get user session info
+export async function getUserSession() {
+  const supabase = await createServerSupabase()
+  
+  const { data: { session }, error } = await supabase.auth.getSession()
+  
+  if (error || !session) {
+    return null
+  }
+
+  return session
+}
+
+// Helper to refresh session
+export async function refreshSession() {
+  const supabase = await createServerSupabase()
+  
+  const { data, error } = await supabase.auth.refreshSession()
+  
+  if (error) {
+    throw new Error('Failed to refresh session')
+  }
+
+  return data.session
 }

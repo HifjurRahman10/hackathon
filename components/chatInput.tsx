@@ -23,7 +23,7 @@ export default function ChatInput({
 
     const filePath = `${userId}/${Date.now()}-${file.name}`;
     const { error: uploadError } = await supabase.storage
-      .from("user_uploads")
+      .from("users_uploads")
       .upload(filePath, file);
 
     if (uploadError) {
@@ -46,7 +46,7 @@ export default function ChatInput({
 
     // Generate signed URL
     const { data: signedData, error: signedError } = await supabase.storage
-      .from("user_uploads")
+      .from("users_uploads")
       .createSignedUrl(filePath, 3600);
 
     if (signedError || !signedData) {

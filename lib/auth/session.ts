@@ -1,58 +1,58 @@
-import { compare, hash } from 'bcryptjs';
-import { SignJWT, jwtVerify } from 'jose';
-import { cookies } from 'next/headers';
-import { NewUser } from '@/lib/db/schema';
+import { createServerSupabase, createAdminSupabase } from './supabase'
+import { db } from '@/lib/db/drizzle'
+import { users } from '@/lib/db/schema'
+import { eq } from 'drizzle-orm'
+import type { User } from '@supabase/supabase-js'
 
-const key = new TextEncoder().encode(process.env.SUPABASE_JWT_SECRET);
-const SALT_ROUNDS = 10;
-export async function hashPassword(password: string) {
-  return hash(password, SALT_ROUNDS);
+export async function getUser() {
+  const supabase = await createServerSupabase()
+  
+  const { data: { user }, error } = await supabase.auth.getUser()
+  
+  if (error || !user) {
+    return null
+  }
+
+  // Get user from local database using Supabase user ID
+  const [dbUser] = await db
+    .select()
+    .from(users)
+    .where(eq(users.supabaseId, user.id))
+    .limit(1)
+
+  return dbUser || null
 }
 
-export async function comparePasswords(
-  plainTextPassword: string,
-  hashedPassword: string
-) {
-  return compare(plainTextPassword, hashedPassword);
+export async function signOut() {
+  const supabase = await createServerSupabase()
+  await supabase.auth.signOut()
 }
 
-type SessionData = {
-  user: { id: number };
-  expires: string;
-};
+// Helper to sync Supabase user with local database
+export async function syncUser(supabaseUser: User) {
+  const adminSupabase = createAdminSupabase()
+  
+  // Check if user exists in local database
+  const [existingUser] = await db
+    .select()
+    .from(users)
+    .where(eq(users.supabaseId, supabaseUser.id))
+    .limit(1)
 
-export async function signToken(payload: SessionData) {
-  return await new SignJWT(payload)
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('1 day from now')
-    .sign(key);
-}
+  if (!existingUser) {
+    // Create user in local database
+    const [newUser] = await db
+      .insert(users)
+      .values({
+        supabaseId: supabaseUser.id,
+        email: supabaseUser.email!,
+        name: supabaseUser.user_metadata?.full_name || supabaseUser.email!.split('@')[0],
+        role: 'owner', // Default role
+      })
+      .returning()
 
-export async function verifyToken(input: string) {
-  const { payload } = await jwtVerify(input, key, {
-    algorithms: ['HS256'],
-  });
-  return payload as SessionData;
-}
+    return newUser
+  }
 
-export async function getSession() {
-  const session = (await cookies()).get('session')?.value;
-  if (!session) return null;
-  return await verifyToken(session);
-}
-
-export async function setSession(user: NewUser) {
-  const expiresInOneDay = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  const session: SessionData = {
-    user: { id: user.id! },
-    expires: expiresInOneDay.toISOString(),
-  };
-  const encryptedSession = await signToken(session);
-  (await cookies()).set('session', encryptedSession, {
-    expires: expiresInOneDay,
-    httpOnly: true,
-    secure: true,
-    sameSite: 'lax',
-  });
+  return existingUser
 }

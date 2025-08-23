@@ -1,56 +1,40 @@
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-import { signToken, verifyToken } from '@/lib/auth/session';
-
-
-const protectedRoutes = '/dashboard';
+import { createMiddlewareSupabase } from '@/lib/auth/supabase'
+import { NextRequest, NextResponse } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-  const sessionCookie = request.cookies.get('session');
-  const isProtectedRoute = pathname.startsWith(protectedRoutes);
+  const { supabase, supabaseResponse } = createMiddlewareSupabase(request)
+
+  // Refresh session if expired
+  const { data: { session } } = await supabase.auth.getSession()
+
+  // Protect authenticated routes
+  const protectedPaths = ['/dashboard', '/settings', '/billing']
+  const authPaths = ['/auth/login', '/auth/signup', '/auth/callback']
   
-   console.log({
-    pathname: pathname,
-    isProtectedRoute: isProtectedRoute,
-    hasSessionCookie: !!sessionCookie
-  });
+  const isProtectedPath = protectedPaths.some(path => 
+    request.nextUrl.pathname.startsWith(path)
+  )
+  const isAuthPath = authPaths.some(path => 
+    request.nextUrl.pathname.startsWith(path)
+  )
 
-  if (isProtectedRoute && !sessionCookie) {
-    return NextResponse.redirect(new URL('/sign-in', request.url));
+  // Redirect unauthenticated users from protected routes
+  if (isProtectedPath && !session) {
+    const redirectUrl = new URL('/auth/login', request.url)
+    redirectUrl.searchParams.set('redirect', request.nextUrl.pathname)
+    return NextResponse.redirect(redirectUrl)
   }
 
-  let res = NextResponse.next();
-
-  if (sessionCookie && request.method === 'GET') {
-    try {
-      const parsed = await verifyToken(sessionCookie.value);
-      const expiresInOneDay = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-      res.cookies.set({
-        name: 'session',
-        value: await signToken({
-          ...parsed,
-          expires: expiresInOneDay.toISOString()
-        }),
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        expires: expiresInOneDay
-      });
-    } catch (error) {
-      console.error('Error updating session:', error);
-      res.cookies.delete('session');
-      if (isProtectedRoute) {
-        return NextResponse.redirect(new URL('/sign-in', request.url));
-      }
-    }
+  // Redirect authenticated users from auth pages
+  if (isAuthPath && session && !request.nextUrl.pathname.includes('/callback')) {
+    return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
-  return res;
+  return supabaseResponse
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
-  runtime: 'nodejs'
-};
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
+}

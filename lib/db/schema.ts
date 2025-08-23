@@ -8,16 +8,20 @@ import {
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
+// Add supabaseId field to users table
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
+  supabaseId: text('supabase_id').notNull().unique(), // Add this field
   name: varchar('name', { length: 100 }),
   email: varchar('email', { length: 255 }).notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
+  // Remove passwordHash as Supabase handles authentication
   role: varchar('role', { length: 20 }).notNull().default('member'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   deletedAt: timestamp('deleted_at'),
 });
+
+// Rest of schema remains the same...
 
 export const teams = pgTable('teams', {
   id: serial('id').primaryKey(),
@@ -111,6 +115,7 @@ export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
     references: [users.id],
   }),
 }));
+
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

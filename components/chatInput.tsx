@@ -88,16 +88,29 @@ export default function ChatInput({
 
       {/* Input row */}
       <div className="flex items-end gap-2">
-        <label className={`cursor-pointer ${!userId ? "opacity-50 pointer-events-none" : ""}`}>
-          <input
-            type="file"
-            className="hidden"
-            accept="image/*,video/*"
-            onChange={(e) => e.target.files && handleFile(e.target.files[0])}
-            disabled={!userId || uploading}
-          />
-          <Paperclip size={20} className="text-gray-500 hover:text-gray-700" />
-        </label>
+        <label
+  className={`cursor-pointer ${!userId ? "opacity-50 pointer-events-none" : ""}`}
+>
+  <input
+    type="file"
+    className="hidden"
+    accept="image/*,video/*"
+    onChange={(e) => {
+      if (!userId) return;
+      if (e.target.files && e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+        e.target.value = ""; // reset input so same file can be re-selected
+      }
+    }}
+    disabled={!userId || uploading}
+  />
+  <Paperclip
+    size={20}
+    className={`text-gray-500 hover:text-gray-700 ${
+      !userId ? "cursor-not-allowed" : ""
+    }`}
+  />
+</label>
 
         <textarea
           value={input}

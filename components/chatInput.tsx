@@ -19,9 +19,13 @@ export default function ChatInput({
 
   // Get current logged-in user
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) setUserId(data.user.id);
-    });
+    const fetchUser = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session?.user) {
+        setUserId(data.session.user.id);
+      }
+    };
+    fetchUser();
   }, []);
 
   async function handleFile(file: File) {
@@ -61,6 +65,7 @@ export default function ChatInput({
 
   return (
     <div className="border-t border-gray-200 bg-white p-4">
+      {/* File previews */}
       {uploads.length > 0 && (
         <div className="flex gap-3 mb-3 flex-wrap">
           {uploads.map(file => (
@@ -81,13 +86,15 @@ export default function ChatInput({
         </div>
       )}
 
+      {/* Input row */}
       <div className="flex items-end gap-2">
-        <label className="cursor-pointer">
+        <label className={`cursor-pointer ${!userId ? "opacity-50 pointer-events-none" : ""}`}>
           <input
             type="file"
             className="hidden"
             accept="image/*,video/*"
             onChange={(e) => e.target.files && handleFile(e.target.files[0])}
+            disabled={!userId || uploading}
           />
           <Paperclip size={20} className="text-gray-500 hover:text-gray-700" />
         </label>

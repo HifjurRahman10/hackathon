@@ -11,107 +11,52 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-04-30.basil'
 });
 
+type TeamForBilling = {
+  id: number;
+  name: string;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  stripeProductId: string | null;
+  planName: string | null;
+  subscriptionStatus: string | null;
+};
+
 export async function createCheckoutSession({
   team,
   priceId
 }: {
-  team: Team | null;
+  team: TeamForBilling;
   priceId: string;
 }) {
-  const user = await getUser();
-
-  if (!team || !user) {
-    redirect(`/sign-up?redirect=checkout&priceId=${priceId}`);
-  }
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
 
   const session = await stripe.checkout.sessions.create({
-    payment_method_types: ['card'],
-    line_items: [
-      {
-        price: priceId,
-        quantity: 1
-      }
-    ],
     mode: 'subscription',
-    success_url: `${process.env.BASE_URL}/api/stripe/checkout?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.BASE_URL}/pricing`,
-    customer: team.stripeCustomerId || undefined,
-    client_reference_id: user.id.toString(),
-    allow_promotion_codes: true,
-    subscription_data: {
-      trial_period_days: 14
-    }
+    line_items: [{ price: priceId, quantity: 1 }],
+    success_url: `${baseUrl}/dashboard?success=1`,
+    cancel_url: `${baseUrl}/pricing?canceled=1`,
+    client_reference_id: String(team.id),
+    metadata: { teamId: String(team.id) }
   });
 
-  redirect(session.url!);
+  if (!session.url) {
+    throw new Error('Stripe did not return a checkout session URL');
+  }
+  return session.url;
 }
 
-export async function createCustomerPortalSession(team: Team) {
-  if (!team.stripeCustomerId || !team.stripeProductId) {
-    redirect('/pricing');
-  }
+export async function createCustomerPortalSession(customerId: string): Promise<string> {
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
 
-  let configuration: Stripe.BillingPortal.Configuration;
-  const configurations = await stripe.billingPortal.configurations.list();
-
-  if (configurations.data.length > 0) {
-    configuration = configurations.data[0];
-  } else {
-    const product = await stripe.products.retrieve(team.stripeProductId);
-    if (!product.active) {
-      throw new Error("Team's product is not active in Stripe");
-    }
-
-    const prices = await stripe.prices.list({
-      product: product.id,
-      active: true
-    });
-    if (prices.data.length === 0) {
-      throw new Error("No active prices found for the team's product");
-    }
-
-    configuration = await stripe.billingPortal.configurations.create({
-      business_profile: {
-        headline: 'Manage your subscription'
-      },
-      features: {
-        subscription_update: {
-          enabled: true,
-          default_allowed_updates: ['price', 'quantity', 'promotion_code'],
-          proration_behavior: 'create_prorations',
-          products: [
-            {
-              product: product.id,
-              prices: prices.data.map((price) => price.id)
-            }
-          ]
-        },
-        subscription_cancel: {
-          enabled: true,
-          mode: 'at_period_end',
-          cancellation_reason: {
-            enabled: true,
-            options: [
-              'too_expensive',
-              'missing_features',
-              'switched_service',
-              'unused',
-              'other'
-            ]
-          }
-        },
-        payment_method_update: {
-          enabled: true
-        }
-      }
-    });
-  }
-
-  return stripe.billingPortal.sessions.create({
-    customer: team.stripeCustomerId,
-    return_url: `${process.env.BASE_URL}/dashboard`,
-    configuration: configuration.id
+  const session = await stripe.billingPortal.sessions.create({
+    customer: customerId,
+    return_url: `${baseUrl}/dashboard`
   });
+
+  if (!session.url) {
+    throw new Error('Stripe did not return a portal session URL');
+  }
+  return session.url;
 }
 
 export async function handleSubscriptionChange(

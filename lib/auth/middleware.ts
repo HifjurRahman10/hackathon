@@ -1,7 +1,21 @@
 import { z } from 'zod'
-import { TeamDataWithMembers } from '@/lib/db/schema'
 import { getTeamForUser, getUser } from '@/lib/db/queries'
 import { redirect } from 'next/navigation'
+
+// Update the type to match what getTeamForUser() actually returns
+export type TeamDataWithMembers = {
+  id: number
+  name: string
+  stripeCustomerId: string | null
+  stripeSubscriptionId: string | null
+  planName: string | null
+  subscriptionStatus: string
+  teamMembers: {
+    id: number
+    name: string | null
+    email: string
+  }[]
+}
 
 export type ActionState = {
   error?: string
@@ -41,7 +55,7 @@ export function validatedActionWithUser<S extends z.ZodType<any, any>, T>(
   return async (prevState: ActionState, formData: FormData) => {
     const user = await getUser()
     if (!user) {
-      redirect('/auth/login')
+      redirect('/sign-in')
     }
 
     const result = schema.safeParse(Object.fromEntries(formData))
@@ -53,16 +67,17 @@ export function validatedActionWithUser<S extends z.ZodType<any, any>, T>(
   }
 }
 
+// Use the actual return type from getTeamForUser
 type ActionWithTeamFunction<T> = (
   formData: FormData,
-  team: TeamDataWithMembers
+  team: NonNullable<Awaited<ReturnType<typeof getTeamForUser>>>
 ) => Promise<T>
 
 export function withTeam<T>(action: ActionWithTeamFunction<T>) {
   return async (formData: FormData): Promise<T> => {
     const user = await getUser()
     if (!user) {
-      redirect('/auth/login')
+      redirect('/sign-in')
     }
 
     const team = await getTeamForUser()

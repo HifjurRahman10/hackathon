@@ -14,8 +14,6 @@ export const users = pgTable('users', {
   supabaseId: text('supabase_id').notNull().unique(), // Add this field
   name: varchar('name', { length: 100 }),
   email: varchar('email', { length: 255 }).notNull().unique(),
-  avatar_url: text('avatar_url'),
-  // Remove passwordHash as Supabase handles authentication
   role: varchar('role', { length: 20 }).notNull().default('member'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -116,7 +114,6 @@ export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
     references: [users.id],
   }),
 }));
-
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;

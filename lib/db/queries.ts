@@ -1,49 +1,42 @@
 import { desc, and, eq, isNull } from 'drizzle-orm';
 import { db } from './drizzle';
 import { activityLogs, teamMembers, teams, users } from './schema';
+import type { User } from './schema';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth/session';
+import type { Session } from '@supabase/supabase-js';
 
-export async function getUser() {
+export async function getUser(): Promise<User | null> {
   const sessionCookie = (await cookies()).get('session');
-  if (!sessionCookie || !sessionCookie.value) {
+  if (!sessionCookie?.value) {
     return null;
   }
 
   const sessionData = await verifyToken(sessionCookie.value);
-  if (
-    !sessionData ||
-    !sessionData.user ||
-    typeof sessionData.user.id !== 'number'
-  ) {
+  if (!sessionData?.user?.id) {
     return null;
   }
 
-  if (new Date(sessionData.expires) < new Date()) {
-    return null;
-  }
-
-  const user = await db
+  const [user] = await db
     .select()
     .from(users)
-    .where(and(eq(users.id, sessionData.user.id), isNull(users.deletedAt)))
+    .where(and(
+      eq(users.supabaseId, sessionData.user.id),
+      isNull(users.deletedAt)
+    ))
     .limit(1);
 
-  if (user.length === 0) {
-    return null;
-  }
-
-  return user[0];
+  return user || null;
 }
 
 export async function getTeamByStripeCustomerId(customerId: string) {
-  const result = await db
+  const [team] = await db
     .select()
     .from(teams)
     .where(eq(teams.stripeCustomerId, customerId))
     .limit(1);
 
-  return result.length > 0 ? result[0] : null;
+  return team || null;
 }
 
 export async function updateTeamSubscription(
@@ -64,8 +57,13 @@ export async function updateTeamSubscription(
     .where(eq(teams.id, teamId));
 }
 
-export async function getUserWithTeam(userId: number) {
-  const result = await db
+type UserWithTeam = {
+  user: User;
+  teamId: number | null;
+};
+
+export async function getUserWithTeam(userId: number): Promise<UserWithTeam | null> {
+  const [result] = await db
     .select({
       user: users,
       teamId: teamMembers.teamId
@@ -75,7 +73,7 @@ export async function getUserWithTeam(userId: number) {
     .where(eq(users.id, userId))
     .limit(1);
 
-  return result[0];
+  return result || null;
 }
 
 export async function getActivityLogs() {
@@ -105,26 +103,34 @@ export async function getTeamForUser() {
     return null;
   }
 
-  const result = await db.query.teamMembers.findFirst({
-    where: eq(teamMembers.userId, user.id),
-    with: {
-      team: {
-        with: {
-          teamMembers: {
-            with: {
-              user: {
-                columns: {
-                  id: true,
-                  name: true,
-                  email: true
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  });
+  const [team] = await db
+    .select({
+      id: teams.id,
+      name: teams.name,
+      stripeCustomerId: teams.stripeCustomerId,
+      stripeSubscriptionId: teams.stripeSubscriptionId,
+      planName: teams.planName,
+      subscriptionStatus: teams.subscriptionStatus
+    })
+    .from(teams)
+    .innerJoin(teamMembers, eq(teams.id, teamMembers.teamId))
+    .where(eq(teamMembers.userId, user.id))
+    .limit(1);
 
-  return result?.team || null;
+  if (!team) return null;
+
+  const members = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email
+    })
+    .from(users)
+    .innerJoin(teamMembers, eq(users.id, teamMembers.userId))
+    .where(eq(teamMembers.teamId, team.id));
+
+  return {
+    ...team,
+    teamMembers: members
+  };
 }

@@ -295,11 +295,15 @@ export const deleteAccount = validatedActionWithUser(
       .where(eq(users.id, user.id));
 
     // Delete user from Supabase
-    const { error: deleteError } = await supabase.auth.admin.deleteUser(user.supabaseId)
-    
+    const supabaseUserId = user.supabaseId;
+    if (!supabaseUserId) {
+      return { error: 'User record missing supabaseId (cannot delete in Supabase)' };
+    }
+
+    const { error: deleteError } = await supabase.auth.admin.deleteUser(supabaseUserId);
     if (deleteError) {
-      console.error('Failed to delete user from Supabase:', deleteError)
-      // Continue with local deletion even if Supabase deletion fails
+      console.error('Failed to delete user from Supabase:', deleteError);
+      return { error: 'Failed to delete Supabase user' };
     }
 
     // Sign out and redirect

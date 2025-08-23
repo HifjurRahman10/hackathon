@@ -9,53 +9,34 @@ import type { Session, User as SupabaseUser } from '@supabase/supabase-js'
 /**
  * Syncs a Supabase user with your local DB.
  */
-export async function syncUser(supabaseUser: SupabaseUser) {
-  if (!supabaseUser.email) throw new Error('Supabase user missing email');
-
-  // Try by supabaseId (if column exists)
-  let existing: any;
-  try {
-    [existing] = await db
-      .select()
-      .from(users)
-      .where(eq(users.supabaseId, supabaseUser.id))
-      .limit(1);
-  } catch (e: any) {
-    if (e.code !== '42703') throw e;
+export async function syncUser(supabaseUser: SupabaseUser): Promise<User> {
+  if (!supabaseUser.email) {
+    throw new Error('Supabase user has no email')
   }
 
-  if (existing) return existing;
+  // Try to find the user in your local DB
+  const [existingUser] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, supabaseUser.email))
+    .limit(1)
 
-  // (Optional) Try by email if column missing
-  if (!existing) {
-    const [byEmail] = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, supabaseUser.email))
-      .limit(1);
-    if (byEmail) {
-      // Try to set supabaseId if column exists
-      try {
-        await db
-          .update(users)
-          .set({ supabaseId: supabaseUser.id })
-          .where(eq(users.id, byEmail.id));
-      } catch { /* ignore */ }
-      return byEmail;
-    }
+  if (existingUser) {
+    return existingUser
   }
 
-  // Insert new
-  const [created] = await db
+  // If not found, insert a new user
+  const [newUser] = await db
     .insert(users)
     .values({
-      supabaseId: supabaseUser.id,
       email: supabaseUser.email,
-      name: (supabaseUser.user_metadata?.full_name as string) || '',
+      supabaseId: supabaseUser.id,
+      name: supabaseUser.user_metadata?.full_name || '',
       role: 'member'
     })
-    .returning();
-  return created;
+    .returning()
+
+  return newUser
 }
 
 /**

@@ -99,19 +99,18 @@ export async function getActivityLogs() {
 
 export async function getTeamForUser() {
   const user = await getUser();
-  if (!user) return null;
+  if (!user) {
+    return null;
+  }
 
   const [team] = await db
     .select({
       id: teams.id,
       name: teams.name,
-      stripeCustomerId: teams.stripeCustomerId,          // ensure included
+      stripeCustomerId: teams.stripeCustomerId,
       stripeSubscriptionId: teams.stripeSubscriptionId,
-      stripeProductId: teams.stripeProductId,
       planName: teams.planName,
-      subscriptionStatus: teams.subscriptionStatus,
-      createdAt: teams.createdAt,
-      updatedAt: teams.updatedAt,
+      subscriptionStatus: teams.subscriptionStatus
     })
     .from(teams)
     .innerJoin(teamMembers, eq(teams.id, teamMembers.teamId))
@@ -124,11 +123,14 @@ export async function getTeamForUser() {
     .select({
       id: users.id,
       name: users.name,
-      email: users.email,
+      email: users.email
     })
     .from(users)
     .innerJoin(teamMembers, eq(users.id, teamMembers.userId))
     .where(eq(teamMembers.teamId, team.id));
 
-  return { ...team, teamMembers: members };
+  return {
+    ...team,
+    teamMembers: members
+  };
 }

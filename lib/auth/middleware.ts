@@ -68,32 +68,23 @@ export function validatedActionWithUser<S extends z.ZodType<any, any>, T>(
 }
 
 // Use the actual return type from getTeamForUser
-export type TeamWithMembers = {
-  id: number
-  name: string
-  stripeCustomerId: string | null
-  stripeSubscriptionId: string | null
-  stripeProductId: string | null
-  planName: string | null
-  subscriptionStatus: string | null
-  createdAt: Date
-  updatedAt: Date
-  teamMembers: {
-    id: number
-    name: string | null
-    email: string
-  }[]
-}
-
 type ActionWithTeamFunction<T> = (
   formData: FormData,
-  team: TeamWithMembers
+  team: NonNullable<Awaited<ReturnType<typeof getTeamForUser>>>
 ) => Promise<T>
 
 export function withTeam<T>(action: ActionWithTeamFunction<T>) {
   return async (formData: FormData): Promise<T> => {
+    const user = await getUser()
+    if (!user) {
+      redirect('/sign-in')
+    }
+
     const team = await getTeamForUser()
-    if (!team) throw new Error('Team not found')
-    return action(formData, team as TeamWithMembers)
+    if (!team) {
+      throw new Error('Team not found')
+    }
+
+    return action(formData, team)
   }
 }

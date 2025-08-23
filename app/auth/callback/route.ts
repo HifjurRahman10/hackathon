@@ -2,47 +2,39 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabase } from '@/lib/auth/supabase'
 import { syncUser } from '@/lib/auth/session'
-import { cookies } from 'next/headers'
-import { getBaseUrl } from '@/lib/utils'
 
-export async function GET(request: Request) {
-  const url = new URL(request.url)
-  const code = url.searchParams.get('code')
-  const type = url.searchParams.get('type') // e.g. 'signup', 'magiclink', 'recovery'
-  const supabase = createServerSupabase()
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const code = searchParams.get('code')
+  const next = searchParams.get('next') ?? '/dashboard'
 
   if (code) {
-    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
-    if (error || !data.session || !data.user) {
-      return NextResponse.redirect(`${getBaseUrl()}/sign-in?error=auth`)
-    }
+    const supabase = await createServerSupabase()
 
-    // Sync local user
-    await syncUser(data.user)
+    try {
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
-    // Set our lightweight session cookie
-    cookies().set(
-      'session',
-      JSON.stringify({
-        user: { id: data.user.id },
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
-        expires_at: data.session.expires_at
-      }),
-      {
-        httpOnly: true,
-        sameSite: 'lax',
-        secure: true,
-        path: '/',
-        maxAge: 60 * 60 * 24 * 7
+      if (error) {
+        console.error('Error exchanging code for session:', error)
+        return NextResponse.redirect(
+          new URL('/sign-in?error=auth-callback-error', request.url)
+        )
       }
-    )
 
-    // Decide redirect target
-    const dest = type === 'recovery' ? '/reset-password' : '/dashboard'
+      if (data.user) {
+        // ✅ Sync user into local DB
+        await syncUser(data.user)
+      }
 
-    return NextResponse.redirect(`${getBaseUrl()}${dest}`)
+      return NextResponse.redirect(new URL(next, request.url))
+    } catch (error) {
+      console.error('Unexpected error during auth callback:', error)
+      return NextResponse.redirect(
+        new URL('/sign-in?error=callback-error', request.url)
+      )
+    }
   }
 
-  return NextResponse.redirect(`${getBaseUrl()}/sign-in?error=missing_code`)
+  // No code provided → redirect to sign in
+  return NextResponse.redirect(new URL('/sign-in', request.url))
 }

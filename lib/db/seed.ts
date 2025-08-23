@@ -1,6 +1,7 @@
-import { stripe } from '@/lib/payments/stripe';
+import { stripe } from '../payments/stripe';
 import { db } from './drizzle';
 import { users, teams, teamMembers } from './schema';
+import { hashPassword } from '@/lib/auth/session';
 
 async function createStripeProducts() {
   console.log('Creating Stripe products and prices...');
@@ -38,71 +39,46 @@ async function createStripeProducts() {
   console.log('Stripe products and prices created successfully.');
 }
 
-async function seedDatabase() {
-  console.log('Seeding database...');
+async function seed() {
+  const email = 'test@test.com';
+  const password = 'admin123';
+  const passwordHash = await hashPassword(password);
 
-  // Insert sample users
-  const [user1, user2] = await db
+  const [user] = await db
     .insert(users)
     .values([
       {
-        email: 'admin@example.com',
-        name: 'Admin User',
-        supabaseId: 'sample-supabase-id-1',
-        role: 'owner',
-      },
-      {
-        email: 'member@example.com',
-        name: 'Member User',
-        supabaseId: 'sample-supabase-id-2',
-        role: 'member',
+        email: email,
+        passwordHash: passwordHash,
+        role: "owner",
       },
     ])
     .returning();
 
-  // Insert sample team
+  console.log('Initial user created.');
+
   const [team] = await db
     .insert(teams)
-    .values([
-      {
-        name: 'Sample Team',
-        stripeCustomerId: null,
-        stripeSubscriptionId: null,
-        planName: null,
-        subscriptionStatus: 'inactive',
-      },
-    ])
+    .values({
+      name: 'Test Team',
+    })
     .returning();
 
-  // Insert team members with the required role field
-  await db.insert(teamMembers).values([
-    {
-      teamId: team.id,
-      userId: user1.id,
-      role: 'owner', // Add the required role field
-    },
-    {
-      teamId: team.id,
-      userId: user2.id,
-      role: 'member', // Add the required role field
-    },
-  ]);
+  await db.insert(teamMembers).values({
+    teamId: team.id,
+    userId: user.id,
+    role: 'owner',
+  });
 
-  console.log('Database seeded successfully!');
+  await createStripeProducts();
 }
 
-async function main() {
-  try {
-    await createStripeProducts();
-    await seedDatabase();
-  } catch (error) {
-    console.error('Error seeding database:', error);
+seed()
+  .catch((error) => {
+    console.error('Seed process failed:', error);
     process.exit(1);
-  }
-}
-
-if (require.main === module) {
-  main();
-}
-
-export { seedDatabase, createStripeProducts };
+  })
+  .finally(() => {
+    console.log('Seed process finished. Exiting...');
+    process.exit(0);
+  });

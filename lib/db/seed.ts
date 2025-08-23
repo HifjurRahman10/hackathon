@@ -41,7 +41,7 @@ async function createStripeProducts() {
 async function seedDatabase() {
   console.log('Seeding database...');
 
-  // Insert sample users without password hashing since you're using Supabase auth
+  // Insert sample users
   const [user1, user2] = await db
     .insert(users)
     .values([
@@ -74,15 +74,17 @@ async function seedDatabase() {
     ])
     .returning();
 
-  // Insert team members
+  // Insert team members with the required role field
   await db.insert(teamMembers).values([
     {
       teamId: team.id,
       userId: user1.id,
+      role: 'owner', // Add the required role field
     },
     {
       teamId: team.id,
       userId: user2.id,
+      role: 'member', // Add the required role field
     },
   ]);
 

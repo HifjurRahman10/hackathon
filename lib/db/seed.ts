@@ -1,7 +1,6 @@
 import { stripe } from '../payments/stripe';
 import { db } from './drizzle';
 import { users, teams, teamMembers } from './schema';
-import { hashPassword } from '@/lib/auth/session';
 
 async function createStripeProducts() {
   console.log('Creating Stripe products and prices...');
@@ -39,46 +38,61 @@ async function createStripeProducts() {
   console.log('Stripe products and prices created successfully.');
 }
 
-async function seed() {
-  const email = 'test@test.com';
-  const password = 'admin123';
-  const passwordHash = await hashPassword(password);
+async function seedDatabase() {
+  console.log('Seeding database...');
 
-  const [user] = await db
+  const [user1, user2] = await db
     .insert(users)
     .values([
       {
-        email: email,
-        passwordHash: passwordHash,
-        role: "owner",
+        email: 'admin@example.com',
+        name: 'Admin User',
+        supabaseId: 'sample-supabase-id-1',
+        role: 'owner',
+      },
+      {
+        email: 'member@example.com',
+        name: 'Member User',
+        supabaseId: 'sample-supabase-id-2',
+        role: 'member',
       },
     ])
     .returning();
 
-  console.log('Initial user created.');
-
   const [team] = await db
     .insert(teams)
-    .values({
-      name: 'Test Team',
-    })
+    .values([
+      {
+        name: 'Sample Team',
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        stripeProductId: null,
+        planName: null,
+        subscriptionStatus: 'inactive',
+      },
+    ])
     .returning();
 
-  await db.insert(teamMembers).values({
-    teamId: team.id,
-    userId: user.id,
-    role: 'owner',
-  });
+  await db.insert(teamMembers).values([
+    { teamId: team.id, userId: user1.id, role: 'owner' },
+    { teamId: team.id, userId: user2.id, role: 'member' },
+  ]);
 
-  await createStripeProducts();
+  console.log('Database seeded.');
 }
 
-seed()
-  .catch((error) => {
-    console.error('Seed process failed:', error);
+async function main() {
+  try {
+    await createStripeProducts();
+    await seedDatabase();
+  } catch (e) {
+    console.error(e);
     process.exit(1);
-  })
-  .finally(() => {
-    console.log('Seed process finished. Exiting...');
-    process.exit(0);
-  });
+  }
+}
+
+if (require.main === module) {
+  main();
+}
+
+export { seedDatabase, createStripeProducts };

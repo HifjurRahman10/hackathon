@@ -1,19 +1,26 @@
 import './globals.css';
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> parent of 335c88d (hdhf)
 import type { Metadata, Viewport } from 'next';
 import { Manrope } from 'next/font/google';
 import { getUser, getTeamForUser } from '@/lib/db/queries';
 import { SWRConfig } from 'swr';
 import { SpeedInsights } from '@vercel/speed-insights/next';
+<<<<<<< HEAD
 =======
 import { getUser } from '@/lib/db/queries';
 >>>>>>> parent of 4a0c42e (hdhf)
+=======
+>>>>>>> parent of 335c88d (hdhf)
 
 export const metadata: Metadata = {
   title: 'Next.js SaaS Starter',
   description: 'Get started quickly with Next.js, Postgres, and Stripe.'
 };
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 export const viewport: Viewport = {
   maximumScale: 1
@@ -61,6 +68,13 @@ async function Header() {
   );
 }
 >>>>>>> parent of 4a0c42e (hdhf)
+=======
+export const viewport: Viewport = {
+  maximumScale: 1
+};
+
+const manrope = Manrope({ subsets: ['latin'] });
+>>>>>>> parent of 335c88d (hdhf)
 
 export default function RootLayout({
   children
@@ -69,6 +83,9 @@ export default function RootLayout({
 }) {
   return (
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> parent of 335c88d (hdhf)
     <html
       lang="en"
       className={`bg-white dark:bg-gray-950 text-black dark:text-white ${manrope.className}`}
@@ -87,15 +104,16 @@ export default function RootLayout({
           {children}
           <SpeedInsights />
         </SWRConfig>
+<<<<<<< HEAD
 =======
     <html lang="en">
       <body className={inter.className}>
         <Header />
         {children}
 >>>>>>> parent of 4a0c42e (hdhf)
+=======
+>>>>>>> parent of 335c88d (hdhf)
       </body>
     </html>
-
-
-}  );  );
+  );
 }

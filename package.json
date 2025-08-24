@@ -1,8 +1,10 @@
 {
+  "name": "hackathon",
+  "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "pnpm run migrate && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "migrate": "drizzle-kit migrate",

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, Suspense, useEffect } from 'react';
+import { use, useState, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { CircleIcon, Home, LogOut } from 'lucide-react';
 import {
@@ -96,50 +96,6 @@ function Header() {
   );
 }
 
-function Sidebar() {
-  const { data: user } = useSWR<User>('/api/user', fetcher);
-  const router = useRouter();
-
-  useEffect(() => {
-    if (user === null) {
-      router.push('/sign-in');
-    }
-  }, [user, router]);
-
-  if (!user) {
-    return <div>Loading...</div>;
-  }
-
-  return (
-    <div className="w-64 bg-gray-50 border-r min-h-screen p-4">
-      <div className="flex items-center gap-3 mb-6 p-3 bg-white rounded-lg">
-        <Avatar>
-          <AvatarFallback className="bg-blue-500 text-white">
-            {(user.name || user.email)?.[0]?.toUpperCase()}
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">
-            {user.name || 'User'}
-          </p>
-          <p className="text-xs text-gray-500 truncate">
-            {user.email}
-          </p>
-        </div>
-      </div>
-      
-      <nav className="space-y-2">
-        <Link href="/dashboard" className="block px-3 py-2 rounded hover:bg-gray-200">
-          Dashboard
-        </Link>
-        <Link href="/pricing" className="block px-3 py-2 rounded hover:bg-gray-200">
-          Pricing
-        </Link>
-      </nav>
-    </div>
-  );
-}
-
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   
@@ -148,11 +104,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   
   if (isDashboardPage) {
     return (
-      <section className="h-screen w-full flex">
-        <Sidebar />
-        <main className="flex-1 p-6">
-          {children}
-        </main>
+      <section className="h-screen w-full">
+        {children}
       </section>
     );
   }

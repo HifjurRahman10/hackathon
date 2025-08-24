@@ -1,6 +1,7 @@
 import './globals.css';
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 >>>>>>> parent of 335c88d (hdhf)
 import type { Metadata, Viewport } from 'next';
@@ -14,6 +15,9 @@ import { getUser } from '@/lib/db/queries';
 >>>>>>> parent of 4a0c42e (hdhf)
 =======
 >>>>>>> parent of 335c88d (hdhf)
+=======
+import { getUser } from '@/lib/db/queries';
+>>>>>>> 56beeb2c9dae322ade980701a993dbb26eb8e5ab
 
 export const metadata: Metadata = {
   title: 'Next.js SaaS Starter',
@@ -22,12 +26,15 @@ export const metadata: Metadata = {
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 export const viewport: Viewport = {
   maximumScale: 1
 };
 
 const manrope = Manrope({ subsets: ['latin'] });
 =======
+=======
+>>>>>>> 56beeb2c9dae322ade980701a993dbb26eb8e5ab
 async function Header() {
   const user = await getUser();
 
@@ -67,6 +74,7 @@ async function Header() {
     </header>
   );
 }
+<<<<<<< HEAD
 >>>>>>> parent of 4a0c42e (hdhf)
 =======
 export const viewport: Viewport = {
@@ -75,6 +83,8 @@ export const viewport: Viewport = {
 
 const manrope = Manrope({ subsets: ['latin'] });
 >>>>>>> parent of 335c88d (hdhf)
+=======
+>>>>>>> 56beeb2c9dae322ade980701a993dbb26eb8e5ab
 
 export default function RootLayout({
   children

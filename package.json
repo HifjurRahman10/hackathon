@@ -4,17 +4,19 @@
   "private": true,
   "scripts": {
 <<<<<<< HEAD
+<<<<<<< HEAD
     "dev": "next dev",
 =======
     "dev": "next dev --turbopack",
 >>>>>>> parent of 335c88d (hdhf)
+=======
+    "dev": "next dev",
+>>>>>>> parent of 142a7bb (hdhf)
     "build": "next build",
     "start": "next start",
-    "db:setup": "npx tsx lib/db/setup.ts",
-    "db:seed": "npx tsx lib/db/seed.ts",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "lint": "next lint",
+    "migrate": "drizzle-kit migrate",
+    "generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.2.3",

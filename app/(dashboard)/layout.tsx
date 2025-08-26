@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useState, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
 import { CircleIcon, Home, LogOut } from 'lucide-react';
 import {
@@ -11,22 +11,74 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { signOut } from '@/app/(login)/actions';
 import { useRouter, usePathname } from 'next/navigation';
-import { User } from '@/lib/db/schema';
-import useSWR, { mutate } from 'swr';
+import { getBrowserSupabase } from '@/lib/auth/supabase-browser';
+import type { User, AuthChangeEvent, Session } from '@supabase/supabase-js';
 
-const fetcher = (url: string) => fetch(url).then((res) => res.json());
+function getInitials(user: User | null): string {
+  if (!user) return '?';
+  
+  const name = user.user_metadata?.full_name || user.user_metadata?.name || user.email || '';
+  if (!name) return '?';
+  
+  // Remove email domain if it's an email
+  const cleanName = name.replace(/@.*/, '');
+  const parts = cleanName.split(/[\s._-]+/).filter(Boolean);
+  
+  if (parts.length === 0) return cleanName.charAt(0).toUpperCase();
+  if (parts.length === 1) return parts[0][0].toUpperCase();
+  
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
 
 function UserMenu() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const { data: user } = useSWR<User>('/api/user', fetcher);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const supabase = getBrowserSupabase();
+
+  useEffect(() => {
+    // Get initial session
+    async function getInitialSession() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setUser(session?.user || null);
+      } catch (error) {
+        console.error('Error getting session:', error);
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    getInitialSession();
+
+    // Listen for auth changes with proper types
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event: AuthChangeEvent, session: Session | null) => {
+        setUser(session?.user || null);
+        setLoading(false);
+      }
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
 
   async function handleSignOut() {
-    await signOut();
-    mutate('/api/user');
-    router.push('/');
+    try {
+      await supabase.auth.signOut();
+      router.push('/');
+      router.refresh();
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  }
+
+  if (loading) {
+    return <div className="h-9 w-9 rounded-full bg-gray-200 animate-pulse" />;
   }
 
   if (!user) {
@@ -38,6 +90,12 @@ function UserMenu() {
         >
           Pricing
         </Link>
+        <Link
+          href="/sign-in"
+          className="text-sm font-medium text-gray-700 hover:text-gray-900"
+        >
+          Sign In
+        </Link>
         <Button asChild className="rounded-full">
           <Link href="/sign-up">Sign Up</Link>
         </Button>
@@ -47,32 +105,33 @@ function UserMenu() {
 
   return (
     <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
-      <DropdownMenuTrigger>
-        <Avatar className="cursor-pointer size-9">
-          <AvatarImage alt={user.name || ''} />
-          <AvatarFallback>
-            {user.email
-              .split(' ')
-              .map((n) => n[0])
-              .join('')}
-          </AvatarFallback>
-        </Avatar>
+      <DropdownMenuTrigger asChild>
+        <button className="focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 rounded-full">
+          <Avatar className="cursor-pointer size-9">
+            <AvatarImage 
+              src={user.user_metadata?.avatar_url} 
+              alt={user.user_metadata?.full_name || user.email || ''} 
+            />
+            <AvatarFallback className="bg-orange-500 text-white font-medium">
+              {getInitials(user)}
+            </AvatarFallback>
+          </Avatar>
+        </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="flex flex-col gap-1">
-        <DropdownMenuItem className="cursor-pointer">
-          <Link href="/dashboard" className="flex w-full items-center">
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuItem asChild>
+          <Link href="/dashboard" className="flex items-center cursor-pointer">
             <Home className="mr-2 h-4 w-4" />
             <span>Dashboard</span>
           </Link>
         </DropdownMenuItem>
-        <form action={handleSignOut} className="w-full">
-          <button type="submit" className="flex w-full">
-            <DropdownMenuItem className="w-full flex-1 cursor-pointer">
-              <LogOut className="mr-2 h-4 w-4" />
-              <span>Sign out</span>
-            </DropdownMenuItem>
-          </button>
-        </form>
+        <DropdownMenuItem 
+          onClick={handleSignOut}
+          className="cursor-pointer text-red-600 focus:text-red-700"
+        >
+          <LogOut className="mr-2 h-4 w-4" />
+          <span>Sign out</span>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -80,14 +139,14 @@ function UserMenu() {
 
 function Header() {
   return (
-    <header className="border-b border-gray-200">
+    <header className="border-b border-gray-200 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-        <Link href="/" className="flex items-center">
+        <Link href="/" className="flex items-center hover:opacity-80 transition-opacity">
           <CircleIcon className="h-6 w-6 text-orange-500" />
           <span className="ml-2 text-xl font-semibold text-gray-900">ACME</span>
         </Link>
         <div className="flex items-center space-x-4">
-          <Suspense fallback={<div className="h-9" />}>
+          <Suspense fallback={<div className="h-9 w-9 rounded-full bg-gray-200 animate-pulse" />}>
             <UserMenu />
           </Suspense>
         </div>

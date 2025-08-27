@@ -1,5 +1,6 @@
 // app/api/chat/route.ts
 import { NextResponse } from "next/server";
+let openApiKey = process.env.OPENAI_API_KEY;
 
 export async function POST(req: Request) {
   try {
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          Authorization: `Bearer ${openApiKey}`,
         },
         body: JSON.stringify({
           model: "gpt-5-nano", // change as needed

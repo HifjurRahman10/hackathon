@@ -45,6 +45,7 @@ export function Login({ mode = 'signin' }: { mode?: 'signin' | 'signup' }) {
             >
               Email
             </Label>
+            
             <div className="mt-1">
               <Input
                 id="email"

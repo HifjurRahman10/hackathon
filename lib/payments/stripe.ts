@@ -28,6 +28,7 @@ export async function createCheckoutSession({
 }: {
   team: BillingTeam;
   priceId: string;
+  
 }) {
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
   const session = await stripe.checkout.sessions.create({

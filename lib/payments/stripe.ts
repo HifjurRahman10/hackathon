@@ -36,7 +36,6 @@ export async function createCheckoutSession({
     success_url: `${baseUrl}/dashboard?success=1`,
     cancel_url: `${baseUrl}/pricing?canceled=1`,
     client_reference_id: String(team.id),
-    
     metadata: { teamId: String(team.id) }
   });
   if (!session.url) throw new Error('No checkout session URL from Stripe');

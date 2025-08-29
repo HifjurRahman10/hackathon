@@ -13,10 +13,7 @@ export async function POST(req: Request) {
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json(
-        { error: "Invalid JSON body" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
     const { prompt } = body;
@@ -35,8 +32,9 @@ export async function POST(req: Request) {
       image = await openai.images.generate({
         model: "gpt-image-1",
         prompt,
-        size: "1024x1024", 
-        n: 1,              
+        size: "1024x1024", // hardcoded
+        n: 1,              // hardcoded
+        response_format: "url", // 👈 force URL return
       });
     } catch (apiErr: any) {
       console.error("❌ OpenAI API error:", apiErr);
@@ -51,9 +49,18 @@ export async function POST(req: Request) {
       );
     }
 
-    const imageUrl = image.data?.[0]?.url;
+    const imgData = image.data?.[0];
+
+    // ✅ Handle both cases: URL or Base64
+    let imageUrl: string | null = null;
+    if (imgData?.url) {
+      imageUrl = imgData.url;
+    } else if (imgData?.b64_json) {
+      imageUrl = `data:image/png;base64,${imgData.b64_json}`;
+    }
+
     if (!imageUrl) {
-      console.error("❌ OpenAI returned no image:", image);
+      console.error("❌ OpenAI returned no usable image:", image);
       return NextResponse.json(
         { error: "No image returned from OpenAI" },
         { status: 502 }

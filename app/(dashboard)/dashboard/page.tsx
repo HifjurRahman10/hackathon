@@ -57,78 +57,94 @@ export default function VideoDashboard() {
   }
 
   async function sendMessage() {
-    if (!input.trim()) return;
+  if (!input.trim()) return;
 
-    const newMessage: Message = { role: 'user', content: input };
-    const updatedMessages: Message[] = [...activeChat.messages, newMessage];
+  const newMessage: Message = { role: 'user', content: input };
+  const updatedMessages: Message[] = [...activeChat.messages, newMessage];
 
-    updateChat(activeChatId, { messages: updatedMessages });
-    setInput('');
-    setLoading(true);
+  updateChat(activeChatId, { messages: updatedMessages });
+  setInput('');
+  setLoading(true);
 
-    try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: updatedMessages }),
-      });
+  try {
+    // Call your chat API
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: updatedMessages }),
+    });
 
-      if (!res.ok) {
-        const { error } = await res.json();
-        updateChat(activeChatId, {
-          messages: [
-            ...updatedMessages,
-            { role: 'assistant', content: `⚠️ Error: ${error}` },
-          ],
-        });
-        return;
-      }
-
-      const data = await res.json();
-      const reply = data.choices?.[0]?.message?.content || '⚠️ No response from assistant.';
-
-      // If reply contains sceneImagePrompt URL, you can call genImage API here
-      let finalMessages: Message[] = [...updatedMessages, asMessage({ role: 'assistant', content: reply })];
-
-      // Example: automatically fetch scene image if reply contains JSON with image prompt
-      try {
-        const parsed = JSON.parse(reply);
-        if (parsed.sceneImagePrompt) {
-          const imgRes = await fetch('/api/genImage', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: parsed.sceneImagePrompt }),
-          });
-          const imgData = await imgRes.json();
-          if (imgData.imageUrl) {
-            finalMessages.push(
-              asMessage({ role: 'assistant', content: `![Scene Image](${imgData.imageUrl})` })
-            );
-          }
-        }
-      } catch (err) {
-        // Not JSON, ignore
-      }
-
-      updateChat(activeChatId, {
-        messages: finalMessages,
-        title:
-          activeChat.title === 'New Chat' && newMessage.content.length > 0
-            ? newMessage.content.slice(0, 30) + (newMessage.content.length > 30 ? '...' : '')
-            : activeChat.title,
-      });
-    } catch (err) {
-      console.error('Fetch error:', err);
+    if (!res.ok) {
+      const { error } = await res.json();
       updateChat(activeChatId, {
         messages: [
           ...updatedMessages,
-          { role: 'assistant', content: '⚠️ Network error. Please try again.' },
+          { role: 'assistant', content: `⚠️ Error: ${error}` },
         ],
       });
-    } finally {
-      setLoading(false);
+      return;
     }
+
+    const data = await res.json();
+    const scene = data.scene;
+
+    if (!scene) {
+      updateChat(activeChatId, {
+        messages: [
+          ...updatedMessages,
+          { role: 'assistant', content: '⚠️ No response from assistant.' },
+        ],
+      });
+      return;
+    }
+
+    // Start with scene prompt
+    let finalMessages: Message[] = [
+      ...updatedMessages,
+      { role: 'assistant', content: scene.scenePrompt },
+    ];
+
+    // If there is an image prompt, generate image
+    if (scene.sceneImagePrompt) {
+      try {
+        const imgRes = await fetch('/api/genImage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: scene.sceneImagePrompt }),
+        });
+        const imgData = await imgRes.json();
+        if (imgData.imageUrl) {
+          finalMessages.push({
+            role: 'assistant',
+            content: `![Scene Image](${imgData.imageUrl})`,
+          });
+        }
+      } catch (err) {
+        console.error('Image generation error:', err);
+      }
+    }
+
+    // Update chat with full messages and dynamic title
+    updateChat(activeChatId, {
+      messages: finalMessages,
+      title:
+        activeChat.title === 'New Chat' && newMessage.content.length > 0
+          ? newMessage.content.slice(0, 30) + (newMessage.content.length > 30 ? '...' : '')
+          : activeChat.title,
+    });
+  } catch (err) {
+    console.error('Fetch error:', err);
+    updateChat(activeChatId, {
+      messages: [
+        ...updatedMessages,
+        { role: 'assistant', content: '⚠️ Network error. Please try again.' },
+      ],
+    });
+  } finally {
+    setLoading(false);
   }
+}
+
 
   return (
     <div className="flex h-full overflow-hidden bg-white">

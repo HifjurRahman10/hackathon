@@ -88,15 +88,23 @@ Guidelines:
 
     // Ensure the content is valid JSON
     let scene;
-    try {
-      scene = SceneSchema.parse(rawContent); // json_object gives direct object
-    } catch (err) {
-      console.error("❌ Failed to validate scene:", err, rawContent);
-      return NextResponse.json(
-        { error: "OpenAI did not return valid scene JSON" },
-        { status: 502 }
-      );
-    }
+try {
+  const raw = data.choices?.[0]?.message?.content;
+
+  if (!raw) throw new Error("No content returned from OpenAI");
+
+  // If raw is a string, try to parse JSON
+  const obj = typeof raw === "string" ? JSON.parse(raw.trim()) : raw;
+
+  // Validate using Zod
+  scene = SceneSchema.parse(obj);
+} catch (err) {
+  console.error("❌ Failed to parse or validate scene:", err, "raw:", data.choices?.[0]?.message?.content);
+  return NextResponse.json(
+    { error: "OpenAI did not return valid scene JSON" },
+    { status: 502 }
+  );
+}
 
     return NextResponse.json({ scene });
   } catch (err: any) {

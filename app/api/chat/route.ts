@@ -1,6 +1,15 @@
 // app/api/chat/route.ts
 import { NextResponse } from "next/server";
+import { z } from "zod";
+
 let openApiKey = process.env.OPENAI_API_KEY;
+
+// Zod schema for a single scene
+const SceneSchema = z.object({
+  sceneNumber: z.number().int().min(1),
+  scenePrompt: z.string(),
+  sceneImagePrompt: z.string(),
+});
 
 export async function POST(req: Request) {
   try {
@@ -17,7 +26,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { messages } = body || {};
+    const { messages, systemPrompt, options } = body || {};
     if (!messages || !Array.isArray(messages)) {
       console.error("❌ Missing or invalid `messages`:", messages);
       return NextResponse.json(
@@ -25,6 +34,42 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    // Add system prompt + options
+    const fullMessages = [
+      {
+        role: "system",
+        content:
+          systemPrompt ||
+          `You are StoryMaker AI, a master storyteller and visual designer. Your task is to create one captivating scene from a story. The scene must:
+
+1. Advance the story — introduce action, emotion, or character development.
+2. Engage the reader — vivid and immersive storytelling.
+3. Provide two outputs:
+   - A short narrative description of the scene.
+   - An expanded image prompt suitable for AI image generation.
+
+Output the result in the following JSON format:
+
+{
+  "sceneNumber": 1,
+  "scenePrompt": "Short description of the scene (2-3 sentences, narrative focused).",
+  "sceneImagePrompt": "Expanded visual description of the scene for image generation (characters, setting, mood, lighting, key details)."
+}
+
+Guidelines:
+- Keep the scene focused and self-contained.
+- Include vivid details about characters, setting, mood, and actions.
+- The image prompt should be rich and descriptive, capturing key visual elements for generation.`,
+      },
+      {
+        role: "system",
+        content: options
+          ? `User options to respect: ${JSON.stringify(options)}`
+          : "No extra options provided.",
+      },
+      ...messages,
+    ];
 
     let response;
     try {
@@ -35,8 +80,9 @@ export async function POST(req: Request) {
           Authorization: `Bearer ${openApiKey}`,
         },
         body: JSON.stringify({
-          model: "gpt-5-nano", // change as needed
-          messages,
+          model: "gpt-5-mini", // change model if needed
+          messages: fullMessages,
+          response_format: { type: "json" },
         }),
       });
     } catch (err) {
@@ -56,10 +102,8 @@ export async function POST(req: Request) {
         errorData = { error: { message: await response.text() } };
       }
 
-      // Always log full OpenAI error server-side
       console.error("❌ OpenAI API error:", response.status, errorData);
 
-      // Map OpenAI error types to safe frontend messages
       const safeErrorMessage =
         errorData?.error?.message ||
         (response.status === 429
@@ -90,7 +134,20 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json(data);
+    // Extract + validate structured JSON
+    let structured;
+    try {
+      const content = data.choices?.[0]?.message?.content;
+      structured = SceneSchema.parse(JSON.parse(content));
+    } catch (err: any) {
+      console.error("❌ Failed to validate structured output:", err);
+      return NextResponse.json(
+        { error: "OpenAI did not return valid scene JSON" },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({ scene: structured });
   } catch (err) {
     console.error("❌ Unexpected server error:", err);
     return NextResponse.json(

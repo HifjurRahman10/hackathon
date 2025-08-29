@@ -7,7 +7,9 @@ import { Plus, MessageCircle, X } from 'lucide-react';
 
 type Message = {
   role: 'user' | 'assistant';
-  content: string;
+  contentText?: string;
+  imageUrl?: string | null;
+  loadingImage?: boolean;
 };
 
 type Chat = {
@@ -16,10 +18,17 @@ type Chat = {
   messages: Message[];
 };
 
+type Scene = {
+  sceneNumber: number;
+  scenePrompt: string;
+  sceneImagePrompt: string;
+};
+
 export default function VideoDashboard() {
   const [chats, setChats] = useState<Chat[]>([{ id: 0, title: 'New Chat', messages: [] }]);
   const [activeChatId, setActiveChatId] = useState(0);
   const [input, setInput] = useState('');
+  const [numScenes, setNumScenes] = useState(3); // default scenes
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -29,12 +38,6 @@ export default function VideoDashboard() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeChat.messages]);
-
-  // Helper to ensure Message type is correct
-  const asMessage = (msg: any): Message => ({
-    role: msg.role === 'assistant' ? 'assistant' : 'user',
-    content: String(msg.content || ''),
-  });
 
   function updateChat(id: number, updates: Partial<Chat>) {
     setChats(prev => prev.map(c => (c.id === id ? { ...c, ...updates } : c)));
@@ -57,94 +60,100 @@ export default function VideoDashboard() {
   }
 
   async function sendMessage() {
-  if (!input.trim()) return;
+    if (!input.trim()) return;
 
-  const newMessage: Message = { role: 'user', content: input };
-  const updatedMessages: Message[] = [...activeChat.messages, newMessage];
+    const newMessage: Message = { role: 'user', contentText: input };
+    const updatedMessages: Message[] = [...activeChat.messages, newMessage];
 
-  updateChat(activeChatId, { messages: updatedMessages });
-  setInput('');
-  setLoading(true);
+    updateChat(activeChatId, { messages: updatedMessages });
+    setInput('');
+    setLoading(true);
 
-  try {
-    // Call your chat API
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: updatedMessages }),
-    });
-
-    if (!res.ok) {
-      const { error } = await res.json();
-      updateChat(activeChatId, {
-        messages: [
-          ...updatedMessages,
-          { role: 'assistant', content: `⚠️ Error: ${error}` },
-        ],
+    try {
+      // Call chat API to generate multiple scenes
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: updatedMessages, numScenes }),
       });
-      return;
-    }
 
-    const data = await res.json();
-    const scene = data.scene;
+      if (!res.ok) {
+        const { error } = await res.json();
+        updateChat(activeChatId, {
+          messages: [
+            ...updatedMessages,
+            { role: 'assistant', contentText: `⚠️ Error: ${error}` },
+          ],
+        });
+        return;
+      }
 
-    if (!scene) {
+      const data = await res.json();
+      const scenes: Scene[] = data.scenes;
+
+      if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
+        updateChat(activeChatId, {
+          messages: [
+            ...updatedMessages,
+            { role: 'assistant', contentText: '⚠️ No scenes generated.' },
+          ],
+        });
+        return;
+      }
+
+      // Add assistant messages with loading skeleton
+      let assistantMessages: Message[] = scenes.map((scene: Scene) => ({
+        role: 'assistant',
+        contentText: scene.scenePrompt,
+        loadingImage: true,
+      }));
+
       updateChat(activeChatId, {
-        messages: [
-          ...updatedMessages,
-          { role: 'assistant', content: '⚠️ No response from assistant.' },
-        ],
+        messages: [...updatedMessages, ...assistantMessages],
+        title:
+          activeChat.title === 'New Chat' && newMessage.contentText
+            ? newMessage.contentText.slice(0, 30) + (newMessage.contentText.length > 30 ? '...' : '')
+            : activeChat.title,
       });
-      return;
-    }
 
-    // Start with scene prompt
-    let finalMessages: Message[] = [
-      ...updatedMessages,
-      { role: 'assistant', content: scene.scenePrompt },
-    ];
-
-    // If there is an image prompt, generate image
-    if (scene.sceneImagePrompt) {
-      try {
-        const imgRes = await fetch('/api/genImage', {
+      // Generate all images in parallel
+      const imagePromises = scenes.map((scene: Scene, idx: number) =>
+        fetch('/api/genImage', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt: scene.sceneImagePrompt }),
+        })
+          .then(res => res.json())
+          .then(data => ({ index: idx, imageUrl: data.imageUrl || null }))
+          .catch(() => ({ index: idx, imageUrl: null }))
+      );
+
+      const imageResults = await Promise.all(imagePromises);
+
+      // Update messages with images
+      const finalMessages = [...updatedMessages];
+      imageResults.forEach(({ index, imageUrl }) => {
+        finalMessages.push({
+          role: 'assistant',
+          contentText: scenes[index].scenePrompt,
+          imageUrl,
+          loadingImage: false,
         });
-        const imgData = await imgRes.json();
-        if (imgData.imageUrl) {
-          finalMessages.push({
-            role: 'assistant',
-            content: `![Scene Image](${imgData.imageUrl})`,
-          });
-        }
-      } catch (err) {
-        console.error('Image generation error:', err);
-      }
+      });
+
+      updateChat(activeChatId, { messages: finalMessages });
+    } catch (err) {
+      console.error('Fetch error:', err);
+      updateChat(activeChatId, {
+        messages: [
+          ...updatedMessages,
+          { role: 'assistant', contentText: '⚠️ Network error. Please try again.' },
+        ],
+      });
+    } finally {
+      setLoading(false);
     }
-
-    // Update chat with full messages and dynamic title
-    updateChat(activeChatId, {
-      messages: finalMessages,
-      title:
-        activeChat.title === 'New Chat' && newMessage.content.length > 0
-          ? newMessage.content.slice(0, 30) + (newMessage.content.length > 30 ? '...' : '')
-          : activeChat.title,
-    });
-  } catch (err) {
-    console.error('Fetch error:', err);
-    updateChat(activeChatId, {
-      messages: [
-        ...updatedMessages,
-        { role: 'assistant', content: '⚠️ Network error. Please try again.' },
-      ],
-    });
-  } finally {
-    setLoading(false);
   }
-}
-
 
   return (
     <div className="flex h-full overflow-hidden bg-white">
@@ -201,7 +210,7 @@ export default function VideoDashboard() {
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="border-b border-gray-200 p-4 bg-white shrink-0">
+        <div className="border-b border-gray-200 p-4 bg-white shrink-0 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
@@ -215,6 +224,18 @@ export default function VideoDashboard() {
               {activeChat.title}
             </h1>
           </div>
+
+          {/* Number of Scenes input */}
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600">Scenes:</label>
+            <Input
+              type="number"
+              min={1}
+              value={numScenes}
+              onChange={(e) => setNumScenes(Number(e.target.value))}
+              className="w-16 h-8 text-sm p-1 rounded"
+            />
+          </div>
         </div>
 
         {/* Messages */}
@@ -227,49 +248,20 @@ export default function VideoDashboard() {
                 <p className="text-gray-400 text-sm mt-2">Ask me anything you'd like to know!</p>
               </div>
             )}
-            
-            {activeChat.messages.map((message, index) => (
-              <div
-                key={index}
-                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`max-w-[70%] p-4 rounded-2xl ${
-                    message.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-br-md'
-                      : 'bg-gray-100 text-gray-800 rounded-bl-md'
-                  }`}
-                >
-                  {/* Render scene image if present */}
-                  {message.role === 'assistant' && message.content.startsWith('![') ? (
-                    <>
-                      {message.content.split('![')[0].trim() && (
-                        <p className="whitespace-pre-wrap mb-2">{message.content.split('![')[0].trim()}</p>
-                      )}
-                      <img
-                        src={message.content.match(/\((.*?)\)/)?.[1]}
-                        alt="Scene"
-                        className="rounded-lg w-full mt-1"
-                      />
-                    </>
-                  ) : (
-                    <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+
+            {activeChat.messages.map((msg, idx) => (
+              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[70%] p-4 rounded-2xl ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-md' : 'bg-gray-100 text-gray-800 rounded-bl-md'}`}>
+                  <p className="whitespace-pre-wrap leading-relaxed">{msg.contentText}</p>
+                  {msg.loadingImage && (
+                    <div className="mt-2 w-full h-64 bg-gray-200 animate-pulse rounded-lg" />
+                  )}
+                  {msg.imageUrl && !msg.loadingImage && (
+                    <img src={msg.imageUrl} alt="Scene" className="rounded-lg w-full mt-2" />
                   )}
                 </div>
               </div>
             ))}
-
-            {loading && (
-              <div className="flex justify-start">
-                <div className="bg-gray-100 px-4 py-3 rounded-2xl rounded-bl-md">
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                  </div>
-                </div>
-              </div>
-            )}
 
             <div ref={bottomRef} />
           </div>
@@ -300,7 +292,6 @@ export default function VideoDashboard() {
           </div>
         </div>
       </div>
-      
     </div>
   );
 }

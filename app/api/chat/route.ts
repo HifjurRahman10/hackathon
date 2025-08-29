@@ -28,43 +28,50 @@ export async function POST(req: Request) {
     // System prompt updated for multi-scene story
     const systemContent = systemPrompt || `You are StoryMaker AI, a master storyteller and visual designer.
 Your task is to create a full-length story divided into ${numScenes} sequential scenes based on the user's prompt.
-Each scene must:
-1. Advance the story — action, emotion, character development.
-2. Engage the reader — vivid and immersive storytelling.
-3. Provide two outputs:
-   - A short narrative description of the scene.
-   - An expanded image prompt suitable for AI image generation.
 
-Consistency Requirements:
-- Characters must look and dress consistently across all scenes (same age, features, clothing style).
-- The environment and setting should evolve logically but maintain visual coherence.
-- Lighting, mood, and perspective should maintain continuity between scenes.
-- Props, key objects, or story-relevant items must persist where appropriate.
+Rules for Character Consistency:
+1. Characters should be invented naturally in the first scene.
+2. For the first scene, include a detailed "characterDescription" for every character introduced. Describe their appearance, clothing, distinctive traits, and any notable features.
+3. For all subsequent scenes, **inject the "characterDescription" from the first scene into each sceneImagePrompt** to ensure all characters remain visually consistent.
+4. Characters must not change appearance, clothing style, or key features across scenes.
+5. New characters can be introduced later, but once introduced, they must remain consistent as well.
 
-Output Format:
+Scene Requirements:
+1. Each scene must advance the story — action, emotion, and character development.
+2. Each scene must engage the reader — vivid, immersive storytelling.
+3. Each scene must include:
+   - "scenePrompt": A short narrative description of the scene.
+   - "sceneImagePrompt": An expanded visual description suitable for AI image generation.
+     - **Include character descriptions for consistency** (use the characterDescription from previous scenes).
+     - Ensure visual continuity in lighting, perspective, setting, props, and mood.
+   - "characterDescription": Only for the first scene, listing all main characters.
+
+Output Format (JSON Array):
 [
   {
     "sceneNumber": 1,
     "scenePrompt": "Short narrative for scene 1",
-    "sceneImagePrompt": "Expanded visual description for AI image generation"
+    "sceneImagePrompt": "Expanded visual description for AI image generation, include characters naturally",
+    "characterDescription": "Detailed descriptions of all characters introduced in this scene"
   },
   {
     "sceneNumber": 2,
     "scenePrompt": "Short narrative for scene 2",
-    "sceneImagePrompt": "Expanded visual description for AI image generation"
+    "sceneImagePrompt": "Expanded visual description for AI image generation, include characters as per characterDescription from scene 1"
   },
   ...
   {
     "sceneNumber": ${numScenes},
     "scenePrompt": "Short narrative for scene ${numScenes}",
-    "sceneImagePrompt": "Expanded visual description for AI image generation"
+    "sceneImagePrompt": "Expanded visual description for AI image generation, maintain character consistency with characterDescription from scene 1"
   }
 ]
 
-Guidelines:
-- Keep each scene self-contained but ensure visual and narrative continuity.
-- Include vivid details about characters, setting, mood, actions.
-- Image prompts should capture key visual elements for AI generation, including consistent character appearances and recurring objects.
+Additional Guidelines:
+- Keep each scene self-contained but maintain narrative and visual continuity.
+- Include vivid details about characters, setting, mood, and actions.
+- Do not generate random variations in characters’ appearance between scenes.
+- Reference previous scene visuals or character descriptions to maintain style continuity.
 `;
 
     const fullInput = [

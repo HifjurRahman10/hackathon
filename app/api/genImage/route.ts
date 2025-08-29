@@ -1,3 +1,4 @@
+// app/api/genImage/route.ts
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
@@ -7,50 +8,65 @@ const openai = new OpenAI({
 
 export async function POST(req: Request) {
   try {
-    const { prompt } = await req.json();
-
-    if (!prompt || typeof prompt !== "string") {
+    // ✅ Parse body safely
+    let body: any;
+    try {
+      body = await req.json();
+    } catch {
       return NextResponse.json(
-        { error: "A valid prompt is required" },
+        { error: "Invalid JSON body" },
         { status: 400 }
       );
     }
 
-    const result = await openai.images.generate({
-      model: "gpt-image-1",
-      prompt,
-      size: "1024x1024",
-      n: 1,
-      quality:"low",
-    });
+    const { prompt } = body;
 
-    const imageUrl = result.data?.[0]?.url;
-    if (!imageUrl) {
+    // ✅ Validate input
+    if (!prompt || typeof prompt !== "string") {
       return NextResponse.json(
-        { error: "Image generation failed, no image returned" },
+        { error: "`prompt` is required and must be a string" },
+        { status: 400 }
+      );
+    }
+
+    // ✅ Call OpenAI Image API (hardcoded size + n=1)
+    let image;
+    try {
+      image = await openai.images.generate({
+        model: "gpt-image-1",
+        prompt,
+        size: "1024x1024", 
+        n: 1,              
+      });
+    } catch (apiErr: any) {
+      console.error("❌ OpenAI API error:", apiErr);
+      return NextResponse.json(
+        {
+          error:
+            apiErr.error?.message ||
+            apiErr.message ||
+            "Failed to generate image",
+        },
+        { status: apiErr.status || 502 }
+      );
+    }
+
+    const imageUrl = image.data?.[0]?.url;
+    if (!imageUrl) {
+      console.error("❌ OpenAI returned no image:", image);
+      return NextResponse.json(
+        { error: "No image returned from OpenAI" },
         { status: 502 }
       );
     }
 
+    // ✅ Success
     return NextResponse.json({ imageUrl });
-  } catch (error: any) {
-    console.error("Image generation error:", error);
-
-    // Handle known OpenAI API errors
-    if (error.response) {
-      return NextResponse.json(
-        {
-          error: error.response.data?.error?.message || "OpenAI API error",
-        },
-        { status: error.response.status || 502 }
-      );
-    }
-
-    // Fallback for unexpected errors
+  } catch (err: any) {
+    console.error("❌ Unexpected server error:", err);
     return NextResponse.json(
-      { error: error.message || "Unexpected server error" },
+      { error: err.message || "Internal server error" },
       { status: 500 }
     );
   }
 }
-

@@ -1,24 +1,32 @@
+// app/api/chat/route.ts
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import OpenAI from "openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+// Schema for a scene
+const SceneSchema = z.object({
+  sceneNumber: z.number().int().min(1),
+  scenePrompt: z.string(),
+  sceneImagePrompt: z.string(),
+});
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { prompt, numScenes } = body;
+    const body = await req.json().catch(() => null);
+    if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-    if (!prompt || typeof prompt !== "string") {
-      return NextResponse.json({ error: "`prompt` must be provided" }, { status: 400 });
+    const { messages, systemPrompt, numScenes } = body;
+    if (!messages || !Array.isArray(messages)) {
+      return NextResponse.json({ error: "`messages` must be an array" }, { status: 400 });
+    }
+    if (!numScenes || typeof numScenes !== "number" || numScenes < 1) {
+      return NextResponse.json({ error: "`numScenes` must be a positive number" }, { status: 400 });
     }
 
-    // Call OpenAI to generate multiple scenes
-    const response = await openai.responses.create({
-      model: "gpt-5-nano",
-      input: [
-        {
-          role: "system",
-          content: `You are StoryMaker AI, a master storyteller and visual designer.
+    // System prompt updated for multi-scene story
+    const systemContent = systemPrompt || `You are StoryMaker AI, a master storyteller and visual designer.
 Your task is to create a full-length story divided into ${numScenes} sequential scenes based on the user's prompt.
 Each scene must:
 1. Advance the story — action, emotion, character development.
@@ -52,24 +60,32 @@ Guidelines:
 - Keep each scene self-contained.
 - Include vivid details about characters, setting, mood, actions.
 - Image prompts should capture key visual elements for AI generation.
-`,
-        },
-        { role: "user", content: prompt },
-      ],
+`;
+
+    const fullInput = [
+      { role: "system", content: systemContent },
+      ...messages,
+    ];
+
+    const response = await openai.responses.create({
+      model: "gpt-5-nano",
+      input: fullInput,
     });
 
-    const raw = response.output_text;
-    let scenes = [];
+    const rawContent = response.output_text;
+    if (!rawContent) return NextResponse.json({ error: "No content from OpenAI" }, { status: 502 });
+
+    let scenes;
     try {
-      scenes = JSON.parse(raw.trim());
+      scenes = z.array(SceneSchema).parse(JSON.parse(rawContent.trim()));
     } catch (err) {
-      console.error("Failed to parse JSON from OpenAI:", raw);
-      return NextResponse.json({ error: "Failed to parse scenes" }, { status: 502 });
+      console.error("❌ Failed to parse scenes:", err, "raw:", rawContent);
+      return NextResponse.json({ error: "Invalid scene JSON from OpenAI" }, { status: 502 });
     }
 
     return NextResponse.json({ scenes });
   } catch (err: any) {
-    console.error(err);
+    console.error("❌ Chat route error:", err);
     return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
   }
 }

@@ -2,14 +2,21 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-const openApiKey = process.env.OPENAI_API_KEY;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 // Zod schema for a single scene
 const SceneSchema = z.object({
-  sceneNumber: z.number().int().min(1),
+  sceneNumber: z.number().int().min(1, "sceneNumber must be >= 1"),
   scenePrompt: z.string(),
   sceneImagePrompt: z.string(),
 });
+
+// Helper to extract JSON from possibly messy model output
+function extractJson(input: string): unknown {
+  const jsonMatch = input.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("No JSON object found in model output");
+  return JSON.parse(jsonMatch[0]);
+}
 
 export async function POST(req: Request) {
   try {
@@ -24,7 +31,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "`messages` must be an array" }, { status: 400 });
     }
 
-    // Build full messages array for OpenAI
+    // Build messages for OpenAI
     const fullMessages = [
       {
         role: "system",
@@ -59,24 +66,21 @@ Guidelines:
     ];
 
     // Call OpenAI API
-    let response;
-    try {
-      response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openApiKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-5-mini",
-          messages: fullMessages,
-          response_format: { type: "text" }, // we parse JSON manually
-        }),
-      });
-    } catch (err) {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-5-mini",
+        messages: fullMessages,
+        response_format: { type: "text" }, // We parse JSON manually
+      }),
+    }).catch((err) => {
       console.error("❌ Network error calling OpenAI API:", err);
-      return NextResponse.json({ error: "Failed to reach OpenAI API" }, { status: 502 });
-    }
+      throw new Error("Failed to reach OpenAI API");
+    });
 
     // Handle API errors
     if (!response.ok) {
@@ -85,7 +89,7 @@ Guidelines:
       return NextResponse.json({ error: message }, { status: response.status });
     }
 
-    // Parse OpenAI response
+    // Parse response
     const data = await response.json();
     const rawContent = data.choices?.[0]?.message?.content;
 
@@ -93,21 +97,25 @@ Guidelines:
       return NextResponse.json({ error: "No content returned from OpenAI" }, { status: 502 });
     }
 
-    // Parse JSON and validate with Zod
-    let scene;
+    // Extract JSON and validate
+    let validatedScene;
     try {
-      scene = SceneSchema.parse(JSON.parse(rawContent));
+      const json = extractJson(rawContent);
+      validatedScene = SceneSchema.parse(json);
     } catch (err) {
-      console.error("❌ Failed to parse or validate scene:", err, rawContent);
+      console.error("❌ Failed to extract or validate scene:", err, rawContent);
       return NextResponse.json(
         { error: "OpenAI did not return valid scene JSON" },
         { status: 502 }
       );
     }
 
-    return NextResponse.json({ scene });
+    return NextResponse.json({ scene: validatedScene });
   } catch (err: any) {
     console.error("❌ Unexpected server error:", err);
-    return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message || "Internal server error" },
+      { status: 500 }
+    );
   }
 }

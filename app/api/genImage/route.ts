@@ -34,7 +34,6 @@ export async function POST(req: Request) {
         prompt,
         size: "1024x1024", // hardcoded
         n: 1,              // hardcoded
-        response_format: "url", // 👈 force URL return
       });
     } catch (apiErr: any) {
       console.error("❌ OpenAI API error:", apiErr);
@@ -51,7 +50,7 @@ export async function POST(req: Request) {
 
     const imgData = image.data?.[0];
 
-    // ✅ Handle both cases: URL or Base64
+    // ✅ Handle both URL and Base64
     let imageUrl: string | null = null;
     if (imgData?.url) {
       imageUrl = imgData.url;

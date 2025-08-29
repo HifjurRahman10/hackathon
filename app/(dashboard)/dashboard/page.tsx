@@ -17,31 +17,33 @@ type Chat = {
 };
 
 export default function VideoDashboard() {
-  const [chats, setChats] = useState<Chat[]>([
-    { id: 0, title: 'New Chat', messages: [] },
-  ]);
+  const [chats, setChats] = useState<Chat[]>([{ id: 0, title: 'New Chat', messages: [] }]);
   const [activeChatId, setActiveChatId] = useState(0);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const activeChat = chats.find((c) => c.id === activeChatId)!;
+  const activeChat = chats.find(c => c.id === activeChatId)!;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeChat.messages]);
 
+  // Helper to ensure Message type is correct
+  const asMessage = (msg: any): Message => ({
+    role: msg.role === 'assistant' ? 'assistant' : 'user',
+    content: String(msg.content || ''),
+  });
+
   function updateChat(id: number, updates: Partial<Chat>) {
-    setChats((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, ...updates } : c))
-    );
+    setChats(prev => prev.map(c => (c.id === id ? { ...c, ...updates } : c)));
   }
 
   function startNewChat() {
     const newId = Math.max(...chats.map(c => c.id), -1) + 1;
     const newChat = { id: newId, title: 'New Chat', messages: [] };
-    setChats((prev) => [newChat, ...prev]);
+    setChats(prev => [newChat, ...prev]);
     setActiveChatId(newId);
   }
 
@@ -58,7 +60,7 @@ export default function VideoDashboard() {
     if (!input.trim()) return;
 
     const newMessage: Message = { role: 'user', content: input };
-    const updatedMessages = [...activeChat.messages, newMessage];
+    const updatedMessages: Message[] = [...activeChat.messages, newMessage];
 
     updateChat(activeChatId, { messages: updatedMessages });
     setInput('');
@@ -83,12 +85,33 @@ export default function VideoDashboard() {
       }
 
       const data = await res.json();
-      const reply =
-        data.choices?.[0]?.message?.content ||
-        '⚠️ No response from assistant.';
+      const reply = data.choices?.[0]?.message?.content || '⚠️ No response from assistant.';
+
+      // If reply contains sceneImagePrompt URL, you can call genImage API here
+      let finalMessages: Message[] = [...updatedMessages, asMessage({ role: 'assistant', content: reply })];
+
+      // Example: automatically fetch scene image if reply contains JSON with image prompt
+      try {
+        const parsed = JSON.parse(reply);
+        if (parsed.sceneImagePrompt) {
+          const imgRes = await fetch('/api/genImage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: parsed.sceneImagePrompt }),
+          });
+          const imgData = await imgRes.json();
+          if (imgData.imageUrl) {
+            finalMessages.push(
+              asMessage({ role: 'assistant', content: `![Scene Image](${imgData.imageUrl})` })
+            );
+          }
+        }
+      } catch (err) {
+        // Not JSON, ignore
+      }
 
       updateChat(activeChatId, {
-        messages: [...updatedMessages, { role: 'assistant', content: reply }],
+        messages: finalMessages,
         title:
           activeChat.title === 'New Chat' && newMessage.content.length > 0
             ? newMessage.content.slice(0, 30) + (newMessage.content.length > 30 ? '...' : '')
@@ -195,15 +218,27 @@ export default function VideoDashboard() {
                 className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-[70%] px-4 py-3 rounded-2xl ${
+                  className={`max-w-[70%] p-4 rounded-2xl ${
                     message.role === 'user'
                       ? 'bg-blue-600 text-white rounded-br-md'
                       : 'bg-gray-100 text-gray-800 rounded-bl-md'
                   }`}
                 >
-                  <p className="whitespace-pre-wrap leading-relaxed">
-                    {message.content}
-                  </p>
+                  {/* Render scene image if present */}
+                  {message.role === 'assistant' && message.content.startsWith('![') ? (
+                    <>
+                      {message.content.split('![')[0].trim() && (
+                        <p className="whitespace-pre-wrap mb-2">{message.content.split('![')[0].trim()}</p>
+                      )}
+                      <img
+                        src={message.content.match(/\((.*?)\)/)?.[1]}
+                        alt="Scene"
+                        className="rounded-lg w-full mt-1"
+                      />
+                    </>
+                  ) : (
+                    <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                  )}
                 </div>
               </div>
             ))}

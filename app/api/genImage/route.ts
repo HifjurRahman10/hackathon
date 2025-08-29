@@ -21,7 +21,7 @@ export async function POST(req: Request) {
       prompt,
       size: "1024x1024",
       n: 1,
-      quality:"medium",
+      quality:"low",
     });
 
     const imageUrl = result.data?.[0]?.url;

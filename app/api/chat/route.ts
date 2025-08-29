@@ -35,8 +35,13 @@ Each scene must:
    - A short narrative description of the scene.
    - An expanded image prompt suitable for AI image generation.
 
-Output the result in the following JSON array format:
+Consistency Requirements:
+- Characters must look and dress consistently across all scenes (same age, features, clothing style).
+- The environment and setting should evolve logically but maintain visual coherence.
+- Lighting, mood, and perspective should maintain continuity between scenes.
+- Props, key objects, or story-relevant items must persist where appropriate.
 
+Output Format:
 [
   {
     "sceneNumber": 1,
@@ -57,9 +62,9 @@ Output the result in the following JSON array format:
 ]
 
 Guidelines:
-- Keep each scene self-contained.
+- Keep each scene self-contained but ensure visual and narrative continuity.
 - Include vivid details about characters, setting, mood, actions.
-- Image prompts should capture key visual elements for AI generation.
+- Image prompts should capture key visual elements for AI generation, including consistent character appearances and recurring objects.
 `;
 
     const fullInput = [

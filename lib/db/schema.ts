@@ -69,13 +69,14 @@ export const chats = pgTable('chats', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
-// New scenes table
+// Updated scenes table with character_description
 export const scenes = pgTable('scenes', {
   id: serial('id').primaryKey(),
   chatId: integer('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
   sceneNumber: integer('scene_number').notNull(),
   scenePrompt: text('scene_prompt').notNull(),
   sceneImagePrompt: text('scene_image_prompt').notNull(),
+  characterDescription: text('character_description'), // ADDED: Character description field
   imageUrl: text('image_url'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });

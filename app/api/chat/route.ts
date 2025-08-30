@@ -25,7 +25,8 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-    const { messages, systemPrompt, numScenes, chatId } = body;
+    const { messages, systemPrompt, numScenes, chatId, userId } = body;
+
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: "`messages` must be an array" }, { status: 400 });
     }
@@ -34,6 +35,20 @@ export async function POST(req: Request) {
     }
     if (!chatId || typeof chatId !== "number") {
       return NextResponse.json({ error: "`chatId` is required" }, { status: 400 });
+    }
+    if (!userId || typeof userId !== "string") {
+      return NextResponse.json({ error: "`userId` is required" }, { status: 400 });
+    }
+
+    // --- Verify that chat belongs to user ---
+    const { data: chatOwner } = await supabase
+      .from("chats")
+      .select("user_id")
+      .eq("id", chatId)
+      .single();
+
+    if (!chatOwner || chatOwner.user_id !== userId) {
+      return NextResponse.json({ error: "Unauthorized: chat does not belong to user" }, { status: 403 });
     }
 
     const systemContent = systemPrompt || `You are StoryMaker AI, a master storyteller and visual designer.

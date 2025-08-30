@@ -11,6 +11,7 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@headlessui/react": "^2.2.7",
     "@radix-ui/react-slot": "^1.2.3",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.56.0",

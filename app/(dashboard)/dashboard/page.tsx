@@ -1,16 +1,15 @@
 "use client";
-import { useEffect, useState } from 'react'
-import { sb } from '@/lib/auth/supabase-browser'
+import { useEffect, useState } from "react";
+import { sb } from "@/lib/auth/supabase-browser";
 
-const supabase = sb()
+const supabase = sb();
 
 export default function DashboardPage() {
   const [chats, setChats] = useState<any[]>([]);
   const [activeChatId, setActiveChatId] = useState<number | null>(null);
-  const [selectedScene, setSelectedScene] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // ✅ Fetch chats for current user
+  // Fetch chats for current user
   useEffect(() => {
     const fetchChats = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -31,7 +30,7 @@ export default function DashboardPage() {
     fetchChats();
   }, []);
 
-  // ✅ New chat creation
+  // Create new chat
   const newChat = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -45,11 +44,10 @@ export default function DashboardPage() {
     if (!error && data) {
       setChats((prev) => [...prev, { ...data, scenes: [], messages: [] }]);
       setActiveChatId(data.id);
-      setSelectedScene(1);
     }
   };
 
-  // ✅ Send message → API generates scenes
+  // Send message → generate scenes
   const sendMessage = async (message: string, numScenes: number) => {
     if (!activeChatId) return;
 
@@ -73,15 +71,12 @@ export default function DashboardPage() {
       const data = await res.json();
       const updatedScenes = [...chat.scenes, ...data.scenes];
 
-      const updatedChats = chats.map((c) =>
-        c.id === chat.id ? { ...c, scenes: updatedScenes } : c
+      setChats((prev) =>
+        prev.map((c) => (c.id === chat.id ? { ...c, scenes: updatedScenes } : c))
       );
-      setChats(updatedChats);
 
-      // ✅ Generate all images in parallel
-      await Promise.all(
-        data.scenes.map((scene: any) => generateImage(scene))
-      );
+      // Generate images in parallel
+      await Promise.all(data.scenes.map((scene: any) => generateImage(scene)));
     } catch (err) {
       console.error(err);
     } finally {
@@ -89,11 +84,10 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Generate image (parallel-ready)
+  // Generate image (parallel-ready)
   const generateImage = async (scene: any, forceRegenerate = false) => {
     if (!activeChatId) return;
 
-    // Skip if already has valid Supabase URL
     if (scene.imageUrl && !forceRegenerate) {
       try {
         const res = await fetch(scene.imageUrl, { method: "HEAD" });
@@ -119,7 +113,6 @@ export default function DashboardPage() {
 
       const { imageUrl } = await res.json();
 
-      // Update scene in local state
       setChats((prev) =>
         prev.map((c) =>
           c.id === activeChatId
@@ -138,28 +131,28 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="p-4">
-      <div className="flex gap-4 mb-4">
+    <div className="flex h-screen bg-gray-50">
+      {/* Sidebar */}
+      <div className="w-72 border-r border-gray-200 flex flex-col p-4">
         <button
           onClick={newChat}
-          className="px-4 py-2 bg-blue-600 text-white rounded"
+          className="mb-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
         >
           New Chat
         </button>
-        {loading && <p>Loading...</p>}
-      </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        {/* Chats list */}
-        <div className="col-span-1 border p-2 rounded">
-          <h2 className="font-bold mb-2">Chats</h2>
-          <ul>
+        {loading && <p className="text-gray-500 mb-2">Loading...</p>}
+
+        <div className="flex-1 overflow-y-auto">
+          <ul className="space-y-2">
             {chats.map((chat) => (
               <li
                 key={chat.id}
                 onClick={() => setActiveChatId(chat.id)}
-                className={`p-2 cursor-pointer rounded ${
-                  chat.id === activeChatId ? "bg-blue-100" : "hover:bg-gray-100"
+                className={`p-2 rounded cursor-pointer transition ${
+                  chat.id === activeChatId
+                    ? "bg-blue-100 font-semibold"
+                    : "hover:bg-gray-100"
                 }`}
               >
                 {chat.title}
@@ -167,45 +160,47 @@ export default function DashboardPage() {
             ))}
           </ul>
         </div>
+      </div>
 
-        {/* Scenes */}
-        <div className="col-span-2 border p-2 rounded">
-          {activeChatId ? (
-            <>
-              <h2 className="font-bold mb-2">Scenes</h2>
-              <ul>
-                {chats
-                  .find((c) => c.id === activeChatId)
-                  ?.scenes.map((scene: any) => (
-                    <li
-                      key={scene.sceneNumber}
-                      className="mb-4 border p-2 rounded"
-                    >
-                      <p className="font-semibold">Scene {scene.sceneNumber}</p>
-                      <p>{scene.sceneText}</p>
+      {/* Main content */}
+      <div className="flex-1 p-6 overflow-y-auto">
+        {activeChatId ? (
+          <>
+            <h2 className="text-xl font-bold mb-4">
+              {chats.find((c) => c.id === activeChatId)?.title}
+            </h2>
+            <div className="grid gap-6">
+              {chats
+                .find((c) => c.id === activeChatId)
+                ?.scenes.map((scene: any) => (
+                  <div
+                    key={scene.sceneNumber}
+                    className="bg-white p-4 rounded shadow-sm"
+                  >
+                    <p className="font-semibold mb-2">Scene {scene.sceneNumber}</p>
+                    <p className="mb-2">{scene.scenePrompt || scene.sceneText}</p>
 
-                      {scene.imageUrl ? (
-                        <img
-                          src={scene.imageUrl}
-                          alt={`Scene ${scene.sceneNumber}`}
-                          className="mt-2 rounded"
-                        />
-                      ) : (
-                        <button
-                          onClick={() => generateImage(scene)}
-                          className="mt-2 px-3 py-1 bg-green-600 text-white rounded"
-                        >
-                          Generate Image
-                        </button>
-                      )}
-                    </li>
-                  ))}
-              </ul>
-            </>
-          ) : (
-            <p>Select a chat to view scenes</p>
-          )}
-        </div>
+                    {scene.imageUrl ? (
+                      <img
+                        src={scene.imageUrl}
+                        alt={`Scene ${scene.sceneNumber}`}
+                        className="w-full rounded border"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => generateImage(scene)}
+                        className="mt-2 px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition"
+                      >
+                        Generate Image
+                      </button>
+                    )}
+                  </div>
+                ))}
+            </div>
+          </>
+        ) : (
+          <p className="text-gray-500">Select a chat to view scenes</p>
+        )}
       </div>
     </div>
   );

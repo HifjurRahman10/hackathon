@@ -1,14 +1,19 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js'; // FIXED: Use browser client for client components
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Plus, X } from 'lucide-react';
-import { getBrowserSupabase } from '@/lib/auth/supabase';
 
-type Message = { role: 'user' | 'assistant'; content: string };
-type Scene = { sceneNumber: number; scenePrompt: string; sceneImagePrompt: string; imageUrl?: string };
-type Chat = { id: number; title: string; messages: Message[] };
+const supabase = createClient( // FIXED: Create browser client directly
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+type Message = { role: 'user' | 'assistant'; content: string; sceneNumber?: number };
+type Scene = { id: number; sceneNumber: number; scenePrompt: string; sceneImagePrompt: string; imageUrl?: string };
+type Chat = { id: number; title: string; scenes: Scene[]; messages: Message[] };
 
 export default function VideoDashboard() {
   const [chats, setChats] = useState<Chat[]>([]);
@@ -16,129 +21,116 @@ export default function VideoDashboard() {
   const [input, setInput] = useState('');
   const [numScenes, setNumScenes] = useState(3);
   const [loading, setLoading] = useState(false);
+  const [selectedScene, setSelectedScene] = useState(1);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const supabase = getBrowserSupabase();
-  const activeChat = chats.find(c => c.id === activeChatId);
-
-  // Auto scroll to bottom
+  // Fetch chats from Supabase on mount
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeChat?.messages]);
-
-  // Load chats from Supabase
-  useEffect(() => {
-    async function loadChats() {
-      const { data, error } = await supabase
-        .from('video_chats')
-        .select('id, title, chat_scenes(*)');
-
-      if (error) {
-        console.error('Error loading chats:', error);
-        return;
-      }
-
-      const loadedChats: Chat[] = (data || []).map((c: any) => ({
-        id: c.id,
-        title: c.title,
-        messages: (c.chat_scenes || []).flatMap((s: any) => [
-          { role: 'assistant', content: s.scene_text },
-          { role: 'assistant', content: `![Scene Image](${s.image_url})` }
-        ])
-      }));
-
-      setChats(loadedChats);
-      if (loadedChats.length) setActiveChatId(loadedChats[0].id);
-    }
-    loadChats();
+    fetchChats();
   }, []);
+
+  async function fetchChats() {
+    const { data: chatsData } = await supabase.from('chats').select('*').order('created_at', { ascending: false });
+    if (!chatsData) return;
+    const chatsWithScenes: Chat[] = await Promise.all(
+      chatsData.map(async (chat) => {
+        const { data: scenes } = await supabase.from('scenes').select('*').eq('chat_id', chat.id).order('scene_number');
+        return { ...chat, scenes: scenes || [], messages: [] };
+      })
+    );
+    setChats(chatsWithScenes);
+    setActiveChatId(chatsWithScenes[0]?.id || null);
+    setSelectedScene(1);
+  }
+
+  const activeChat = chats.find(c => c.id === activeChatId) || null;
+  const sceneMessages = activeChat?.scenes.filter(s => s.sceneNumber === selectedScene).map(s => ({
+    role: 'assistant' as const,
+    content: s.imageUrl ? `![Scene Image](${s.imageUrl})` : s.scenePrompt,
+    sceneNumber: s.sceneNumber
+  })) || [];
 
   function updateChat(id: number, updates: Partial<Chat>) {
     setChats(prev => prev.map(c => (c.id === id ? { ...c, ...updates } : c)));
   }
 
+  async function newChat() {
+    const { data: newChat, error } = await supabase.from('chats').insert([{ title: 'New Chat' }]).select().single();
+    if (error || !newChat) return;
+    setChats(prev => [...prev, { ...newChat, scenes: [], messages: [] }]);
+    setActiveChatId(newChat.id);
+    setSelectedScene(1);
+  }
+
+  async function deleteChat(id: number) {
+    await supabase.from('chats').delete().eq('id', id);
+    setChats(prev => prev.filter(c => c.id !== id));
+    setActiveChatId(prev => (chats[0]?.id || null));
+    setSelectedScene(1);
+  }
+
   async function sendMessage() {
     if (!input.trim() || !activeChat) return;
-
-    if (numScenes < 1 || numScenes > 99) {
-      updateChat(activeChatId!, {
-        messages: [...activeChat.messages, { role: 'assistant', content: '⚠️ Error: Scene count must be between 1 and 99' }],
-      });
-      return;
-    }
-
-    const newMessage: Message = { role: 'user', content: input };
-    const updatedMessages = [...activeChat.messages, newMessage];
-    updateChat(activeChatId!, { messages: updatedMessages });
-    setInput('');
     setLoading(true);
+    const userMessage: Message = { role: 'user', content: input };
+    updateChat(activeChat.id, { messages: [...activeChat.messages, userMessage] });
+    setInput('');
 
     try {
-      // Call chat API
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: updatedMessages, numScenes, chatTitle: activeChat.title }),
+        body: JSON.stringify({ messages: [...activeChat.messages, userMessage], numScenes }),
       });
+      if (!res.ok) throw new Error('Chat API error');
+      const data = await res.json();
+      const scenes: Scene[] = data.scenes;
 
-      if (!res.ok) {
-        const { error } = await res.json().catch(() => ({ error: 'Unknown error' }));
-        updateChat(activeChatId!, {
-          messages: [...updatedMessages, { role: 'assistant', content: `⚠️ Error: ${error}` }],
-        });
-        return;
-      }
+      // Generate images in parallel and upload to Supabase storage
+      await Promise.all(
+        scenes.map(async (scene) => {
+          const imgRes = await fetch('/api/genImage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: scene.sceneImagePrompt }),
+          });
+          const imgData = await imgRes.json();
+          if (imgData.imageUrl) {
+            // Upload to Supabase storage
+            const fileName = `scene-${activeChat.id}-${scene.sceneNumber}.png`;
+            const blob = await (await fetch(imgData.imageUrl)).blob();
+            const { data: storageData, error: uploadError } = await supabase.storage
+              .from('user_uploads')
+              .upload(fileName, blob, { upsert: true });
+            if (!uploadError) {
+              scene.imageUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/user_uploads/${fileName}`;
+            }
+          }
 
-      const { scenes } = await res.json();
-      const finalMessages: Message[] = [];
+          // Insert scene into DB
+          await supabase.from('scenes').insert({
+            chat_id: activeChat.id,
+            scene_number: scene.sceneNumber,
+            scene_prompt: scene.scenePrompt,
+            scene_image_prompt: scene.sceneImagePrompt,
+            image_url: scene.imageUrl || null
+          });
+        })
+      );
 
-      scenes.forEach((scene: Scene) => {
-        finalMessages.push({ role: 'assistant', content: scene.scenePrompt });
-        if (scene.imageUrl) {
-          finalMessages.push({ role: 'assistant', content: `![Scene Image](${scene.imageUrl})` });
-        }
-      });
-
-      updateChat(activeChatId!, {
-        messages: [...updatedMessages, ...finalMessages],
-        title: activeChat.title === 'New Chat' ? input.slice(0, 30) : activeChat.title,
-      });
-
+      fetchChats(); // refresh chat + scenes from DB
     } catch (err) {
-      console.error('Send message error:', err);
-      updateChat(activeChatId!, {
-        messages: [...activeChat.messages, { role: 'assistant', content: '⚠️ Network error' }],
-      });
+      console.error(err);
     } finally {
       setLoading(false);
     }
   }
 
-  async function newChat() {
-    const title = 'New Chat';
-    const { data, error } = await supabase
-      .from('video_chats')
-      .insert({ title })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error creating chat:', error);
-      return;
-    }
-
-    const chat: Chat = { id: data.id, title: data.title, messages: [] };
-    setChats(prev => [...prev, chat]);
-    setActiveChatId(data.id);
-  }
-
-  async function deleteChat(id: number) {
-    const { error } = await supabase.from('video_chats').delete().eq('id', id);
-    if (error) console.error('Delete chat error:', error);
-
-    setChats(prev => prev.filter(c => c.id !== id));
-    if (activeChatId === id) setActiveChatId(chats[0]?.id ?? null);
-  }
+  // FIXED: Combine user messages and scene messages for display
+  const allMessages = [
+    ...(activeChat?.messages || []),
+    ...sceneMessages
+  ];
 
   return (
     <div className="flex h-full overflow-hidden bg-white">
@@ -147,7 +139,6 @@ export default function VideoDashboard() {
         <div className="p-4 border-b border-gray-200 flex justify-between items-center">
           <Button onClick={newChat}><Plus className="w-4 h-4 mr-1" /> New Chat</Button>
         </div>
-
         <div className="px-4 py-2">
           <label className="text-sm mr-2">Scenes:</label>
           <input
@@ -159,22 +150,11 @@ export default function VideoDashboard() {
             className="border px-2 py-1 rounded w-20"
           />
         </div>
-
         <div className="flex-1 overflow-y-auto p-3">
           {chats.map(chat => (
-            <div
-              key={chat.id}
-              className={`flex items-center justify-between mb-2 p-2 rounded cursor-pointer ${chat.id === activeChatId ? 'bg-blue-100' : 'hover:bg-gray-100'}`}
-            >
-              <button className="flex-1 text-left" onClick={() => setActiveChatId(chat.id)}>
-                {chat.title}
-              </button>
-              <button
-                onClick={e => { e.stopPropagation(); deleteChat(chat.id); }}
-                className="text-gray-400 hover:text-red-500"
-              >
-                <X className="w-4 h-4" />
-              </button>
+            <div key={chat.id} className={`flex items-center justify-between mb-2 p-2 rounded cursor-pointer ${chat.id === activeChatId ? 'bg-blue-100' : 'hover:bg-gray-100'}`}>
+              <button className="flex-1 text-left" onClick={() => setActiveChatId(chat.id)}>{chat.title}</button>
+              <button onClick={() => deleteChat(chat.id)} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>
             </div>
           ))}
         </div>
@@ -182,9 +162,23 @@ export default function VideoDashboard() {
 
       {/* Main chat */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Scene Selector */}
+        <div className="p-2 border-b border-gray-200 flex items-center gap-2">
+          <label className="text-sm">Scene:</label>
+          <select
+            value={selectedScene}
+            onChange={(e) => setSelectedScene(Number(e.target.value))}
+            className="border px-2 py-1 rounded"
+          >
+            {Array.from({ length: numScenes }, (_, i) => i + 1).map(num => (
+              <option key={num} value={num}>Scene {num}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="flex-1 overflow-y-auto p-4">
-          {activeChat?.messages.map((message, idx) => (
-            <div key={idx} className={`mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'}`}>
+          {allMessages.map((message, idx) => (
+            <div key={`${message.role}-${idx}`} className={`mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'}`}>
               {message.content.startsWith('![') ? (
                 <img src={message.content.match(/\((.*?)\)/)?.[1]} alt="Scene" className="rounded w-full max-w-md" />
               ) : (
@@ -206,9 +200,7 @@ export default function VideoDashboard() {
             placeholder="Type your message..."
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendMessage())}
           />
-          <Button onClick={sendMessage} disabled={!input.trim() || loading}>
-            Send
-          </Button>
+          <Button onClick={sendMessage} disabled={!input.trim() || loading}>Send</Button>
         </div>
       </div>
     </div>

@@ -2,258 +2,215 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input'; // FIXED: Correct import for Input
-import { Plus, MessageCircle, X } from 'lucide-react';
-import { Dialog } from '@headlessui/react';
-import { createBrowserClient } from '@supabase/ssr'; // FIXED: Use @supabase/ssr instead of deprecated auth-helpers
+import { Input } from '@/components/ui/input';
+import { Plus, X } from 'lucide-react';
+import { getBrowserSupabase } from '@/lib/auth/supabase';
 
-// Define types inline since database.types doesn't exist
 type Message = { role: 'user' | 'assistant'; content: string };
-type Scene = { id?: number; sceneNumber: number; scenePrompt: string; sceneImagePrompt: string; imageUrl?: string };
-type Chat = { id: number; title: string; messages: Message[]; scenes: Scene[] };
+type Scene = { sceneNumber: number; scenePrompt: string; sceneImagePrompt: string; imageUrl?: string };
+type Chat = { id: number; title: string; messages: Message[] };
 
 export default function VideoDashboard() {
-  // FIXED: Use createBrowserClient from @supabase/ssr
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [activeChatId, setActiveChatId] = useState<number | null>(null);
+  const [input, setInput] = useState('');
+  const [numScenes, setNumScenes] = useState(3);
+  const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const [chats, setChats] = useState<Chat[]>([{ id: 0, title: 'New Chat', messages: [], scenes: [] }]);
-  const [activeChatId, setActiveChatId] = useState<number>(0);
-  const [input, setInput] = useState('');
-  const [sceneCount, setSceneCount] = useState<number>(1);
-  const [loading, setLoading] = useState(false);
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [chatToDelete, setChatToDelete] = useState<Chat | null>(null);
-
+  const supabase = getBrowserSupabase();
   const activeChat = chats.find(c => c.id === activeChatId);
-  if (!activeChat) return <div>Loading...</div>;
 
-  // Scroll to bottom on new messages/scenes
+  // Auto scroll to bottom
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeChat.messages, activeChat.scenes]);
+  }, [activeChat?.messages]);
 
-  // Persist chats in Supabase
-  const saveChat = async (chat: Chat) => {
-    setChats(prev => prev.map(c => (c.id === chat.id ? chat : c)));
-    // You can implement upsert in Supabase here for chat metadata
-    await supabase.from('chats').upsert({
-      id: chat.id,
-      title: chat.title,
-      messages: chat.messages,
-    });
-  };
+  // Load chats from Supabase
+  useEffect(() => {
+    async function loadChats() {
+      const { data, error } = await supabase
+        .from('video_chats')
+        .select('id, title, chat_scenes(*)');
 
-  const deleteChat = async () => {
-    if (!chatToDelete) return;
-    setChats(prev => prev.filter(c => c.id !== chatToDelete.id));
-    if (chatToDelete.id === activeChatId) {
-      setActiveChatId(chats[0]?.id ?? 0);
+      if (error) {
+        console.error('Error loading chats:', error);
+        return;
+      }
+
+      const loadedChats: Chat[] = (data || []).map((c: any) => ({
+        id: c.id,
+        title: c.title,
+        messages: (c.chat_scenes || []).flatMap((s: any) => [
+          { role: 'assistant', content: s.scene_text },
+          { role: 'assistant', content: `![Scene Image](${s.image_url})` }
+        ])
+      }));
+
+      setChats(loadedChats);
+      if (loadedChats.length) setActiveChatId(loadedChats[0].id);
     }
-    setDeleteModalOpen(false);
-    setChatToDelete(null);
-    await supabase.from('chats').delete().eq('id', chatToDelete.id);
-  };
+    loadChats();
+  }, []);
 
-  const startNewChat = () => {
-    const newId = Math.max(...chats.map(c => c.id), -1) + 1;
-    const newChat: Chat = { id: newId, title: 'New Chat', messages: [], scenes: [] };
-    setChats([newChat, ...chats]);
-    setActiveChatId(newId);
-  };
+  function updateChat(id: number, updates: Partial<Chat>) {
+    setChats(prev => prev.map(c => (c.id === id ? { ...c, ...updates } : c)));
+  }
 
-  const sendMessage = async () => {
-    if (!input.trim()) return;
+  async function sendMessage() {
+    if (!input.trim() || !activeChat) return;
 
-    // Validate scene count
-    if (sceneCount < 1 || sceneCount > 99) {
-      alert('Scene count must be between 1 and 99.');
+    if (numScenes < 1 || numScenes > 99) {
+      updateChat(activeChatId!, {
+        messages: [...activeChat.messages, { role: 'assistant', content: '⚠️ Error: Scene count must be between 1 and 99' }],
+      });
       return;
     }
 
     const newMessage: Message = { role: 'user', content: input };
     const updatedMessages = [...activeChat.messages, newMessage];
-    saveChat({ ...activeChat, messages: updatedMessages });
+    updateChat(activeChatId!, { messages: updatedMessages });
     setInput('');
     setLoading(true);
 
     try {
-      // Chat API call
+      // Call chat API
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: updatedMessages, sceneCount }),
+        body: JSON.stringify({ messages: updatedMessages, numScenes, chatTitle: activeChat.title }),
       });
 
       if (!res.ok) {
-        const { error } = await res.json();
-        saveChat({
-          ...activeChat,
-          messages: [
-            ...updatedMessages,
-            { role: 'assistant', content: `⚠️ Error: ${error}` },
-          ],
+        const { error } = await res.json().catch(() => ({ error: 'Unknown error' }));
+        updateChat(activeChatId!, {
+          messages: [...updatedMessages, { role: 'assistant', content: `⚠️ Error: ${error}` }],
         });
         return;
       }
 
-      const data = await res.json();
-      const scenes: Scene[] = data.scenes || [];
+      const { scenes } = await res.json();
+      const finalMessages: Message[] = [];
 
-      // Generate images in parallel and upload to Supabase
-      const scenesWithImages = await Promise.all(
-        scenes.map(async (scene) => {
-          try {
-            const imgRes = await fetch('/api/genImage', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: scene.sceneImagePrompt }),
-            });
-            const imgData = await imgRes.json();
-            let imageUrl = imgData.imageUrl || ''; // FIXED: Use imageUrl instead of imageBase64
-
-            if (imageUrl) {
-              const filename = `scene-${Date.now()}-${scene.sceneNumber}.png`;
-              const response = await fetch(imageUrl);
-              const blob = await response.blob();
-
-              const { data: uploadData, error: uploadError } = await supabase.storage
-                .from('user_uploads')
-                .upload(filename, blob, { contentType: 'image/png' });
-
-              if (!uploadError && uploadData) {
-                // FIXED: Correct destructuring for getPublicUrl
-                const { data } = supabase.storage.from('user_uploads').getPublicUrl(filename);
-                imageUrl = data.publicUrl || '';
-              }
-            }
-
-            return { ...scene, imageUrl };
-          } catch (err) {
-            console.error('Image gen/upload error:', err);
-            return { ...scene, imageUrl: '' };
-          }
-        })
-      );
-
-      saveChat({
-        ...activeChat,
-        messages: updatedMessages,
-        scenes: scenesWithImages,
+      scenes.forEach((scene: Scene) => {
+        finalMessages.push({ role: 'assistant', content: scene.scenePrompt });
+        if (scene.imageUrl) {
+          finalMessages.push({ role: 'assistant', content: `![Scene Image](${scene.imageUrl})` });
+        }
       });
 
-      // Optionally cache scenes in memory (useRef or React state) to limit Supabase calls
+      updateChat(activeChatId!, {
+        messages: [...updatedMessages, ...finalMessages],
+        title: activeChat.title === 'New Chat' ? input.slice(0, 30) : activeChat.title,
+      });
+
     } catch (err) {
       console.error('Send message error:', err);
-      saveChat({
-        ...activeChat,
-        messages: [...updatedMessages, { role: 'assistant', content: '⚠️ Network error' }],
+      updateChat(activeChatId!, {
+        messages: [...activeChat.messages, { role: 'assistant', content: '⚠️ Network error' }],
       });
     } finally {
       setLoading(false);
     }
-  };
+  }
+
+  async function newChat() {
+    const title = 'New Chat';
+    const { data, error } = await supabase
+      .from('video_chats')
+      .insert({ title })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating chat:', error);
+      return;
+    }
+
+    const chat: Chat = { id: data.id, title: data.title, messages: [] };
+    setChats(prev => [...prev, chat]);
+    setActiveChatId(data.id);
+  }
+
+  async function deleteChat(id: number) {
+    const { error } = await supabase.from('video_chats').delete().eq('id', id);
+    if (error) console.error('Delete chat error:', error);
+
+    setChats(prev => prev.filter(c => c.id !== id));
+    if (activeChatId === id) setActiveChatId(chats[0]?.id ?? null);
+  }
 
   return (
     <div className="flex h-full overflow-hidden bg-white">
       {/* Sidebar */}
       <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col">
-        <div className="p-4 border-b border-gray-200">
-          <Button onClick={startNewChat} className="w-full flex items-center gap-2">
-            <Plus size={18} /> New Chat
-          </Button>
+        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+          <Button onClick={newChat}><Plus className="w-4 h-4 mr-1" /> New Chat</Button>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+
+        <div className="px-4 py-2">
+          <label className="text-sm mr-2">Scenes:</label>
+          <input
+            type="number"
+            min={1}
+            max={99}
+            value={numScenes}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNumScenes(Number(e.target.value))}
+            className="border px-2 py-1 rounded w-20"
+          />
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3">
           {chats.map(chat => (
-            <div key={chat.id} className="relative group rounded-lg hover:bg-gray-100">
-              <button
-                className="w-full text-left p-3 flex items-center gap-2"
-                onClick={() => setActiveChatId(chat.id)}
-              >
-                <MessageCircle size={16} className="text-gray-400" />
-                <span className="truncate">{chat.title}</span>
+            <div
+              key={chat.id}
+              className={`flex items-center justify-between mb-2 p-2 rounded cursor-pointer ${chat.id === activeChatId ? 'bg-blue-100' : 'hover:bg-gray-100'}`}
+            >
+              <button className="flex-1 text-left" onClick={() => setActiveChatId(chat.id)}>
+                {chat.title}
               </button>
-              {chats.length > 1 && (
-                <button
-                  onClick={() => { setChatToDelete(chat); setDeleteModalOpen(true); }}
-                  className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded"
-                >
-                  <X size={14} className="text-red-500" />
-                </button>
-              )}
+              <button
+                onClick={e => { e.stopPropagation(); deleteChat(chat.id); }}
+                className="text-gray-400 hover:text-red-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Main area */}
+      {/* Main chat */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {activeChat.messages.map((msg, i) => (
-            <div key={i} className={`${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
-              {msg.content.startsWith('![') ? (
-                <img src={msg.content.match(/\((.*?)\)/)?.[1]} alt="Scene" className="rounded w-full max-w-md" />
+        <div className="flex-1 overflow-y-auto p-4">
+          {activeChat?.messages.map((message, idx) => (
+            <div key={idx} className={`mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'}`}>
+              {message.content.startsWith('![') ? (
+                <img src={message.content.match(/\((.*?)\)/)?.[1]} alt="Scene" className="rounded w-full max-w-md" />
               ) : (
-                <p className={`${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'} inline-block p-2 rounded`}>
-                  {msg.content}
+                <p className={`inline-block p-2 rounded ${message.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                  {message.content}
                 </p>
               )}
             </div>
           ))}
-
-          {activeChat.scenes.map((scene) => (
-            <div key={scene.sceneNumber} className="space-y-2">
-              <h2 className="font-semibold">Scene {scene.sceneNumber}</h2>
-              <p className="bg-gray-100 p-3 rounded">{scene.scenePrompt}</p>
-              {scene.imageUrl ? (
-                <img src={scene.imageUrl} className="rounded w-full" />
-              ) : (
-                <div className="h-64 bg-gray-200 animate-pulse rounded" />
-              )}
-            </div>
-          ))}
-
-          {loading && (
-            <div className="space-y-2">
-              {[...Array(sceneCount * 2)].map((_, i) => (
-                <div key={i} className="h-6 bg-gray-200 rounded animate-pulse"></div>
-              ))}
-            </div>
-          )}
-
+          {loading && <div className="space-y-2">{[...Array(numScenes * 2)].map((_, i) => <div key={i} className="h-6 bg-gray-200 rounded animate-pulse"></div>)}</div>}
           <div ref={bottomRef} />
         </div>
 
         {/* Input */}
-        <div className="border-t border-gray-200 p-4 flex gap-2">
+        <div className="p-4 border-t border-gray-200 flex gap-2">
           <Input
             value={input}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
             placeholder="Type your message..."
-            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-            }}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), sendMessage())}
           />
           <Button onClick={sendMessage} disabled={!input.trim() || loading}>
             Send
           </Button>
         </div>
       </div>
-
-      {/* Delete modal */}
-      <Dialog open={deleteModalOpen} onClose={() => setDeleteModalOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-        <Dialog.Panel className="bg-white p-6 rounded-lg shadow-lg max-w-sm w-full">
-          <Dialog.Title className="font-semibold text-lg mb-4">Delete Chat?</Dialog.Title>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setDeleteModalOpen(false)}>Cancel</Button>
-            <Button onClick={deleteChat} className="bg-red-600 hover:bg-red-700 text-white">Delete</Button>
-          </div>
-        </Dialog.Panel>
-      </Dialog>
     </div>
   );
 }

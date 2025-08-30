@@ -5,13 +5,14 @@ import {
   text,
   timestamp,
   integer,
+  uuid, // Added for UUID types
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
-// Add supabaseId field to users table
+// Updated users table to use UUID for id (common in Supabase)
 export const users = pgTable('users', {
-  id: serial('id').primaryKey(),
-  supabaseId: text('supabase_id').notNull().unique(), // Add this field
+  id: uuid('id').primaryKey().defaultRandom(), // Changed to uuid
+  supabaseId: text('supabase_id').notNull().unique(),
   name: varchar('name', { length: 100 }),
   email: varchar('email', { length: 255 }).notNull().unique(),
   role: varchar('role', { length: 20 }).notNull().default('member'),
@@ -20,7 +21,35 @@ export const users = pgTable('users', {
   deletedAt: timestamp('deleted_at'),
 });
 
-// Rest of schema remains the same...
+// Updated foreign keys to use uuid
+export const teamMembers = pgTable('team_members', {
+  id: serial('id').primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id), // Changed to uuid
+  teamId: integer('team_id').notNull().references(() => teams.id),
+  role: varchar('role', { length: 50 }).notNull(),
+  joinedAt: timestamp('joined_at').notNull().defaultNow(),
+});
+
+export const activityLogs = pgTable('activity_logs', {
+  id: serial('id').primaryKey(),
+  teamId: integer('team_id').notNull().references(() => teams.id),
+  userId: uuid('user_id').references(() => users.id), // Changed to uuid
+  action: text('action').notNull(),
+  timestamp: timestamp('timestamp').notNull().defaultNow(),
+  ipAddress: varchar('ip_address', { length: 45 }),
+});
+
+export const invitations = pgTable('invitations', {
+  id: serial('id').primaryKey(),
+  teamId: integer('team_id').notNull().references(() => teams.id),
+  email: varchar('email', { length: 255 }).notNull(),
+  role: varchar('role', { length: 50 }).notNull(),
+  invitedBy: uuid('invited_by').notNull().references(() => users.id), // Changed to uuid
+  invitedAt: timestamp('invited_at').notNull().defaultNow(),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+});
+
+// Rest of the schema...
 
 export const teams = pgTable('teams', {
   id: serial('id').primaryKey(),
@@ -34,43 +63,42 @@ export const teams = pgTable('teams', {
   subscriptionStatus: varchar('subscription_status', { length: 20 }),
 });
 
-export const teamMembers = pgTable('team_members', {
+// New chats table
+export const chats = pgTable('chats', {
   id: serial('id').primaryKey(),
-  userId: integer('user_id')
-    .notNull()
-    .references(() => users.id),
-  teamId: integer('team_id')
-    .notNull()
-    .references(() => teams.id),
-  role: varchar('role', { length: 50 }).notNull(),
-  joinedAt: timestamp('joined_at').notNull().defaultNow(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  title: text('title'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
-export const activityLogs = pgTable('activity_logs', {
+// New scenes table
+export const scenes = pgTable('scenes', {
   id: serial('id').primaryKey(),
-  teamId: integer('team_id')
-    .notNull()
-    .references(() => teams.id),
-  userId: integer('user_id').references(() => users.id),
-  action: text('action').notNull(),
-  timestamp: timestamp('timestamp').notNull().defaultNow(),
-  ipAddress: varchar('ip_address', { length: 45 }),
+  chatId: integer('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
+  sceneNumber: integer('scene_number').notNull(),
+  scenePrompt: text('scene_prompt').notNull(),
+  sceneImagePrompt: text('scene_image_prompt').notNull(),
+  imageUrl: text('image_url'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
-export const invitations = pgTable('invitations', {
-  id: serial('id').primaryKey(),
-  teamId: integer('team_id')
-    .notNull()
-    .references(() => teams.id),
-  email: varchar('email', { length: 255 }).notNull(),
-  role: varchar('role', { length: 50 }).notNull(),
-  invitedBy: integer('invited_by')
-    .notNull()
-    .references(() => users.id),
-  invitedAt: timestamp('invited_at').notNull().defaultNow(),
-  status: varchar('status', { length: 20 }).notNull().default('pending'),
-});
+// Relations for new tables
+export const chatsRelations = relations(chats, ({ one, many }) => ({
+  user: one(users, {
+    fields: [chats.userId],
+    references: [users.id],
+  }),
+  scenes: many(scenes),
+}));
 
+export const scenesRelations = relations(scenes, ({ one }) => ({
+  chat: one(chats, {
+    fields: [scenes.chatId],
+    references: [chats.id],
+  }),
+}));
+
+// Existing relations...
 export const teamsRelations = relations(teams, ({ many }) => ({
   teamMembers: many(teamMembers),
   activityLogs: many(activityLogs),
@@ -80,6 +108,7 @@ export const teamsRelations = relations(teams, ({ many }) => ({
 export const usersRelations = relations(users, ({ many }) => ({
   teamMembers: many(teamMembers),
   invitationsSent: many(invitations),
+  chats: many(chats), // Added relation to chats
 }));
 
 export const invitationsRelations = relations(invitations, ({ one }) => ({
@@ -115,6 +144,13 @@ export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
   }),
 }));
 
+// Type exports for new tables
+export type Chat = typeof chats.$inferSelect;
+export type NewChat = typeof chats.$inferInsert;
+export type Scene = typeof scenes.$inferSelect;
+export type NewScene = typeof scenes.$inferInsert;
+
+// Existing type exports...
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Team = typeof teams.$inferSelect;

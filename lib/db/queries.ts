@@ -1,7 +1,7 @@
 import { desc, and, eq, isNull } from 'drizzle-orm';
 import { db } from './drizzle';
-import { activityLogs, teamMembers, teams, users } from './schema';
-import type { User } from './schema';
+import { activityLogs, teamMembers, teams, users, chats, scenes } from './schema';
+import type { User, Chat, Scene } from './schema';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth/session';
 import type { Session } from '@supabase/supabase-js';
@@ -62,7 +62,7 @@ type UserWithTeam = {
   teamId: number | null;
 };
 
-export async function getUserWithTeam(userId: number): Promise<UserWithTeam | null> {
+export async function getUserWithTeam(userId: string): Promise<UserWithTeam | null> {
   const [result] = await db
     .select({
       user: users,
@@ -133,4 +133,77 @@ export async function getTeamForUser() {
     ...team,
     teamMembers: members
   };
+}
+
+// New queries for chats and scenes
+export async function getChatsForUser(userId: string) {
+  return await db
+    .select()
+    .from(chats)
+    .where(eq(chats.userId, userId))
+    .orderBy(desc(chats.createdAt));
+}
+
+export async function getChatWithScenes(chatId: number) {
+  const [chat] = await db
+    .select()
+    .from(chats)
+    .where(eq(chats.id, chatId))
+    .limit(1);
+
+  if (!chat) return null;
+
+  // FIXED: Renamed variable to 'sceneList' to avoid conflict with table name 'scenes'
+  const sceneList = await db
+    .select()
+    .from(scenes)
+    .where(eq(scenes.chatId, chatId))
+    .orderBy(scenes.sceneNumber);
+
+  return {
+    ...chat,
+    scenes: sceneList
+  };
+}
+
+export async function createChat(userId: string, title: string) {
+  const [newChat] = await db
+    .insert(chats)
+    .values({
+      userId,
+      title,
+    })
+    .returning();
+
+  return newChat;
+}
+
+export async function createScene(chatId: number, sceneData: {
+  sceneNumber: number;
+  scenePrompt: string;
+  sceneImagePrompt: string;
+  imageUrl?: string;
+}) {
+  const [newScene] = await db
+    .insert(scenes)
+    .values({
+      chatId,
+      ...sceneData,
+    })
+    .returning();
+
+  return newScene;
+}
+
+export async function updateChat(chatId: number, updates: Partial<Chat>) {
+  await db
+    .update(chats)
+    .set(updates)
+    .where(eq(chats.id, chatId));
+}
+
+export async function deleteChat(chatId: number) {
+  await db
+    .delete(chats)
+    .where(eq(chats.id, chatId));
 }

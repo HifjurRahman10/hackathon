@@ -27,9 +27,10 @@ export default function VideoDashboard() {
   const [chats, setChats] = useState<Chat[]>([{ id: 0, title: 'New Chat', messages: [] }]);
   const [activeChatId, setActiveChatId] = useState(0);
   const [input, setInput] = useState('');
-  const [numScenes, setNumScenes] = useState(1);
+  const [numScenes, setNumScenes] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [deleteModalChatId, setDeleteModalChatId] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -42,11 +43,6 @@ export default function VideoDashboard() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeChat.messages]);
 
-  const asMessage = (msg: any): Message => ({
-    role: msg.role === 'assistant' ? 'assistant' : 'user',
-    content: String(msg.content || ''),
-  });
-
   function updateChat(id: number, updates: Partial<Chat>) {
     setChats(prev => prev.map(c => (c.id === id ? { ...c, ...updates } : c)));
   }
@@ -58,13 +54,14 @@ export default function VideoDashboard() {
     setActiveChatId(newId);
   }
 
-  function deleteChat(chatId: number) {
-    if (chats.length === 1) return;
-    setChats(prev => prev.filter(c => c.id !== chatId));
-    if (chatId === activeChatId) {
-      const remainingChats = chats.filter(c => c.id !== chatId);
+  function confirmDeleteChat() {
+    if (deleteModalChatId === null) return;
+    setChats(prev => prev.filter(c => c.id !== deleteModalChatId));
+    if (deleteModalChatId === activeChatId) {
+      const remainingChats = chats.filter(c => c.id !== deleteModalChatId);
       setActiveChatId(remainingChats[0]?.id || 0);
     }
+    setDeleteModalChatId(null);
   }
 
   async function sendMessage() {
@@ -80,7 +77,7 @@ export default function VideoDashboard() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: updatedMessages, numScenes }),
+        body: JSON.stringify({ messages: updatedMessages, numScenes: numScenes || 1 }),
       });
 
       if (!res.ok) {
@@ -97,7 +94,6 @@ export default function VideoDashboard() {
       const data = await res.json();
       const scenes: Scene[] = data.scenes || [];
 
-      // Parallel image requests
       const imagePromises = scenes.map(scene =>
         fetch('/api/genImage', {
           method: 'POST',
@@ -149,15 +145,6 @@ export default function VideoDashboard() {
             <Plus size={18} />
             New Chat
           </Button>
-          <Input
-            type="number"
-            min={1}
-            max={20}
-            value={numScenes}
-            onChange={e => setNumScenes(Number(e.target.value))}
-            placeholder="Number of scenes"
-            className="mt-2 w-full border-gray-300 focus:border-blue-500 focus:ring-blue-500 rounded-xl"
-          />
         </div>
         <div className="flex-1 overflow-y-auto p-3">
           <div className="space-y-2">
@@ -181,7 +168,7 @@ export default function VideoDashboard() {
                 </button>
                 {chats.length > 1 && (
                   <button
-                    onClick={(e: any) => { e.stopPropagation(); deleteChat(chat.id); }}
+                    onClick={(e: any) => { e.stopPropagation(); setDeleteModalChatId(chat.id); }}
                     className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-100 rounded"
                   >
                     <X size={14} className="text-red-500" />
@@ -195,8 +182,8 @@ export default function VideoDashboard() {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <div className="border-b border-gray-200 p-4 bg-white shrink-0">
+        {/* Header with scene selector */}
+        <div className="border-b border-gray-200 p-4 bg-white shrink-0 flex justify-between items-center">
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
@@ -208,6 +195,15 @@ export default function VideoDashboard() {
             </Button>
             <h1 className="font-semibold text-gray-800 truncate">{activeChat.title}</h1>
           </div>
+          <Input
+            type="number"
+            min={1}
+            max={20}
+            value={numScenes ?? ''}
+            onChange={e => setNumScenes(Number(e.target.value))}
+            placeholder="Number of scenes"
+            className="w-28 border-gray-300 focus:border-blue-500 focus:ring-blue-500 rounded-xl"
+          />
         </div>
 
         {/* Messages */}
@@ -220,9 +216,9 @@ export default function VideoDashboard() {
               </div>
             )}
 
-            {activeChat.messages.map((message, index) => (
+            {activeChat.messages.map((message, idx) => (
               <div
-                key={index}
+                key={idx}
                 className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 <div
@@ -252,7 +248,7 @@ export default function VideoDashboard() {
 
             {loading && (
               <div className="flex justify-start space-y-2 flex-col">
-                {[...Array(numScenes)].map((_, idx) => (
+                {[...Array(numScenes || 1)].map((_, idx) => (
                   <div key={idx} className="w-full max-w-[70%] h-16 bg-gray-200 rounded-2xl animate-pulse" />
                 ))}
               </div>
@@ -287,6 +283,20 @@ export default function VideoDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteModalChatId !== null && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/40 z-50">
+          <div className="bg-white rounded-xl p-6 w-80">
+            <h2 className="text-lg font-semibold mb-4">Delete Chat?</h2>
+            <p className="text-sm text-gray-600 mb-6">Are you sure you want to delete this chat? This action cannot be undone.</p>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setDeleteModalChatId(null)}>Cancel</Button>
+              <Button variant="destructive" onClick={confirmDeleteChat}>Delete</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

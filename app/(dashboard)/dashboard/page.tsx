@@ -1,12 +1,8 @@
 "use client";
+import { useEffect, useState } from 'react'
+import { sb } from '@/lib/auth/supabase-browser'
 
-import { useState, useEffect } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const supabase = sb()
 
 export default function DashboardPage() {
   const [chats, setChats] = useState<any[]>([]);

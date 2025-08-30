@@ -22,22 +22,25 @@ const SceneSchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => null);
-    if (!body) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    const raw = await req.json().catch(() => null)
+    if (!raw) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
 
-    const { messages, systemPrompt, numScenes, chatId, userId } = body;
+    // ADD userId and systemPrompt so they exist (minimal change)
+    let { chatId, messages, numScenes, userId, systemPrompt } = raw
+    // Accept string or number without changing downstream logic
+    if (typeof chatId === 'string') {
+      const n = Number(chatId)
+      if (!Number.isNaN(n)) chatId = n
+    }
+    if (typeof chatId !== 'number' || !Number.isFinite(chatId) || chatId <= 0) {
+      return NextResponse.json({ error: '`chatId` is required' }, { status: 400 })
+    }
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: "`messages` must be an array" }, { status: 400 });
     }
     if (!numScenes || typeof numScenes !== "number" || numScenes < 1) {
       return NextResponse.json({ error: "`numScenes` must be a positive number" }, { status: 400 });
-    }
-    if (!chatId || typeof chatId !== "number") {
-      return NextResponse.json({ error: "`chatId` is required" }, { status: 400 });
-    }
-    if (!userId || typeof userId !== "string") {
-      return NextResponse.json({ error: "`userId` is required" }, { status: 400 });
     }
 
     // --- Verify that chat belongs to user ---

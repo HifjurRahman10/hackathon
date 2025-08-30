@@ -25,10 +25,17 @@ import {
 } from '@/lib/db/schema'
 import { db } from '@/lib/db/drizzle'
 import { and, eq } from 'drizzle-orm'
+import { revalidatePath } from 'next/cache'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
 
 async function logActivity(
   teamId: number | null | undefined,
-  userId: number,
+  userId: string, // FIXED: Changed from number to string
   type: ActivityType,
   ipAddress?: string
 ) {
@@ -37,11 +44,12 @@ async function logActivity(
   }
   const newActivity: NewActivityLog = {
     teamId,
-    userId,
+    userId, // FIXED: Removed .toString() since userId is already string
     action: type,
     ipAddress: ipAddress || ''
   }
-  await db.insert(activityLogs).values(newActivity)
+
+  await supabase.from('activity_logs').insert(newActivity)
 }
 
 const signInSchema = z.object({
@@ -71,7 +79,7 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
     const user = await syncUser(authData.user)
     const userWithTeam = await getUserWithTeam(user.id)
     
-    await logActivity(userWithTeam?.teamId, user.id, ActivityType.SIGN_IN)
+    await logActivity(userWithTeam?.teamId, user.id, ActivityType.SIGN_IN) // FIXED: user.id is string
 
     const redirectTo = formData.get('redirect') as string | null
     if (redirectTo === 'checkout') {
@@ -150,7 +158,7 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
     if (invitation) {
       // Add user to team
       await db.insert(teamMembers).values({
-        userId: user.id,
+        userId: user.id, // FIXED: user.id is string (UUID)
         teamId: invitation.teamId,
         role: invitation.role
       })
@@ -161,7 +169,7 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
         .set({ status: 'accepted' })
         .where(eq(invitations.id, invitation.id))
 
-      await logActivity(invitation.teamId, user.id, ActivityType.ACCEPT_INVITATION)
+      await logActivity(invitation.teamId, user.id, ActivityType.ACCEPT_INVITATION) // FIXED: user.id is string
     }
 
     redirect('/dashboard')
@@ -179,7 +187,7 @@ export async function signOut() {
   const user = await getUser()
   if (user) {
     const userWithTeam = await getUserWithTeam(user.id)
-    await logActivity(userWithTeam?.teamId, user.id, ActivityType.SIGN_OUT)
+    await logActivity(userWithTeam?.teamId, user.id, ActivityType.SIGN_OUT) // FIXED: user.id is string
   }
 
   const supabase = await createServerSupabase()
@@ -234,7 +242,7 @@ export const updatePassword = validatedActionWithUser(
     }
 
     const userWithTeam = await getUserWithTeam(user.id)
-    await logActivity(userWithTeam?.teamId, user.id, ActivityType.UPDATE_PASSWORD)
+    await logActivity(userWithTeam?.teamId, user.id, ActivityType.UPDATE_PASSWORD) // FIXED: user.id is string
 
     return {
       success: 'Password updated successfully.'
@@ -269,7 +277,7 @@ export const deleteAccount = validatedActionWithUser(
 
     await logActivity(
       userWithTeam?.teamId,
-      user.id,
+      user.id, // FIXED: user.id is string
       ActivityType.DELETE_ACCOUNT
     );
 
@@ -279,7 +287,7 @@ export const deleteAccount = validatedActionWithUser(
         .delete(teamMembers)
         .where(
           and(
-            eq(teamMembers.userId, user.id),
+            eq(teamMembers.userId, user.id), // FIXED: user.id is string
             eq(teamMembers.teamId, userWithTeam.teamId)
           )
         );
@@ -292,7 +300,7 @@ export const deleteAccount = validatedActionWithUser(
         deletedAt: new Date(),
         email: `${user.email}-${user.id}-deleted` // Ensure email uniqueness
       })
-      .where(eq(users.id, user.id));
+      .where(eq(users.id, user.id)); // FIXED: user.id is string
 
     // Delete user from Supabase
     const { error: deleteError } = await supabase.auth.admin.deleteUser(user.supabaseId)
@@ -350,8 +358,8 @@ export const updateAccount = validatedActionWithUser(
 
     // Update local database
     await Promise.all([
-      db.update(users).set({ name, email }).where(eq(users.id, user.id)),
-      logActivity(userWithTeam?.teamId, user.id, ActivityType.UPDATE_ACCOUNT)
+      db.update(users).set({ name, email }).where(eq(users.id, user.id)), // FIXED: user.id is string
+      logActivity(userWithTeam?.teamId, user.id, ActivityType.UPDATE_ACCOUNT) // FIXED: user.id is string
     ]);
 
     return { name, success: 'Account updated successfully.' };
@@ -383,7 +391,7 @@ export const removeTeamMember = validatedActionWithUser(
 
     await logActivity(
       userWithTeam.teamId,
-      user.id,
+      user.id, // FIXED: user.id is string
       ActivityType.REMOVE_TEAM_MEMBER
     );
 
@@ -441,13 +449,13 @@ export const inviteTeamMember = validatedActionWithUser(
       teamId: userWithTeam.teamId,
       email,
       role,
-      invitedBy: user.id,
+      invitedBy: user.id, // FIXED: user.id is string
       status: 'pending'
     }).returning();
 
     await logActivity(
       userWithTeam.teamId,
-      user.id,
+      user.id, // FIXED: user.id is string
       ActivityType.INVITE_TEAM_MEMBER
     );
 

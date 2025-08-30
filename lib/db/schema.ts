@@ -5,13 +5,13 @@ import {
   text,
   timestamp,
   integer,
-  uuid, // Added for UUID types
+  uuid,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 
-// Updated users table to use UUID for id (common in Supabase)
+// Fixed users table with proper UUID handling for Supabase
 export const users = pgTable('users', {
-  id: uuid('id').primaryKey().defaultRandom(), // Changed to uuid
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`), // FIXED: Use sql template
   supabaseId: text('supabase_id').notNull().unique(),
   name: varchar('name', { length: 100 }),
   email: varchar('email', { length: 255 }).notNull().unique(),
@@ -20,36 +20,6 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   deletedAt: timestamp('deleted_at'),
 });
-
-// Updated foreign keys to use uuid
-export const teamMembers = pgTable('team_members', {
-  id: serial('id').primaryKey(),
-  userId: uuid('user_id').notNull().references(() => users.id), // Changed to uuid
-  teamId: integer('team_id').notNull().references(() => teams.id),
-  role: varchar('role', { length: 50 }).notNull(),
-  joinedAt: timestamp('joined_at').notNull().defaultNow(),
-});
-
-export const activityLogs = pgTable('activity_logs', {
-  id: serial('id').primaryKey(),
-  teamId: integer('team_id').notNull().references(() => teams.id),
-  userId: uuid('user_id').references(() => users.id), // Changed to uuid
-  action: text('action').notNull(),
-  timestamp: timestamp('timestamp').notNull().defaultNow(),
-  ipAddress: varchar('ip_address', { length: 45 }),
-});
-
-export const invitations = pgTable('invitations', {
-  id: serial('id').primaryKey(),
-  teamId: integer('team_id').notNull().references(() => teams.id),
-  email: varchar('email', { length: 255 }).notNull(),
-  role: varchar('role', { length: 50 }).notNull(),
-  invitedBy: uuid('invited_by').notNull().references(() => users.id), // Changed to uuid
-  invitedAt: timestamp('invited_at').notNull().defaultNow(),
-  status: varchar('status', { length: 20 }).notNull().default('pending'),
-});
-
-// Rest of the schema...
 
 export const teams = pgTable('teams', {
   id: serial('id').primaryKey(),
@@ -63,10 +33,38 @@ export const teams = pgTable('teams', {
   subscriptionStatus: varchar('subscription_status', { length: 20 }),
 });
 
-// New chats table
+// Fixed foreign keys to use uuid
+export const teamMembers = pgTable('team_members', {
+  id: serial('id').primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id), // FIXED: Proper UUID reference
+  teamId: integer('team_id').notNull().references(() => teams.id),
+  role: varchar('role', { length: 50 }).notNull(),
+  joinedAt: timestamp('joined_at').notNull().defaultNow(),
+});
+
+export const activityLogs = pgTable('activity_logs', {
+  id: serial('id').primaryKey(),
+  teamId: integer('team_id').notNull().references(() => teams.id),
+  userId: uuid('user_id').references(() => users.id), // FIXED: Proper UUID reference
+  action: text('action').notNull(),
+  timestamp: timestamp('timestamp').notNull().defaultNow(),
+  ipAddress: varchar('ip_address', { length: 45 }),
+});
+
+export const invitations = pgTable('invitations', {
+  id: serial('id').primaryKey(),
+  teamId: integer('team_id').notNull().references(() => teams.id),
+  email: varchar('email', { length: 255 }).notNull(),
+  role: varchar('role', { length: 50 }).notNull(),
+  invitedBy: uuid('invited_by').notNull().references(() => users.id), // FIXED: Proper UUID reference
+  invitedAt: timestamp('invited_at').notNull().defaultNow(),
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+});
+
+// New chats table - FIXED: Proper UUID reference
 export const chats = pgTable('chats', {
   id: serial('id').primaryKey(),
-  userId: uuid('user_id').notNull().references(() => users.id),
+  userId: uuid('user_id').notNull().references(() => users.id), // FIXED: Proper UUID reference
   title: text('title'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });

@@ -8,8 +8,8 @@ export default function DashboardPage() {
   const [chats, setChats] = useState<any[]>([]);
   const [activeChatId, setActiveChatId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [numScenes, setNumScenes] = useState(3); // Default scene count
 
-  // Fetch chats for current user
   useEffect(() => {
     const fetchChats = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -24,13 +24,17 @@ export default function DashboardPage() {
       if (!error && data) {
         const withMessages = data.map((c: any) => ({ ...c, messages: c.messages || [] }));
         setChats(withMessages);
+
+        // If DB has chats but none selected, select the first
+        if (data.length > 0 && activeChatId === null) {
+          setActiveChatId(data[0].id);
+        }
       }
     };
 
     fetchChats();
-  }, []);
+  }, [activeChatId]);
 
-  // Create new chat
   const newChat = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
@@ -47,7 +51,6 @@ export default function DashboardPage() {
     }
   };
 
-  // Send message → generate scenes
   const sendMessage = async (message: string, numScenes: number) => {
     if (!activeChatId) return;
 
@@ -75,7 +78,6 @@ export default function DashboardPage() {
         prev.map((c) => (c.id === chat.id ? { ...c, scenes: updatedScenes } : c))
       );
 
-      // Generate images in parallel
       await Promise.all(data.scenes.map((scene: any) => generateImage(scene)));
     } catch (err) {
       console.error(err);
@@ -84,7 +86,6 @@ export default function DashboardPage() {
     }
   };
 
-  // Generate image (parallel-ready)
   const generateImage = async (scene: any, forceRegenerate = false) => {
     if (!activeChatId) return;
 
@@ -141,6 +142,18 @@ export default function DashboardPage() {
           New Chat
         </button>
 
+        <div className="mb-2 flex items-center space-x-2">
+          <label className="text-gray-700">Scenes:</label>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={numScenes}
+            onChange={(e) => setNumScenes(Number(e.target.value))}
+            className="w-16 px-2 py-1 border rounded"
+          />
+        </div>
+
         {loading && <p className="text-gray-500 mb-2">Loading...</p>}
 
         <div className="flex-1 overflow-y-auto">
@@ -169,6 +182,14 @@ export default function DashboardPage() {
             <h2 className="text-xl font-bold mb-4">
               {chats.find((c) => c.id === activeChatId)?.title}
             </h2>
+            <div className="mb-4">
+              <button
+                onClick={() => sendMessage("Generate Scenes", numScenes)}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition"
+              >
+                Generate Scenes
+              </button>
+            </div>
             <div className="grid gap-6">
               {chats
                 .find((c) => c.id === activeChatId)
@@ -199,7 +220,7 @@ export default function DashboardPage() {
             </div>
           </>
         ) : (
-          <p className="text-gray-500">Select a chat to view scenes</p>
+          <p className="text-gray-500">No chats yet. Click "New Chat" to start!</p>
         )}
       </div>
     </div>

@@ -51,16 +51,20 @@ export async function GET(request: NextRequest) {
     }
 
     // Get userId from metadata instead of client_reference_id
-    const userId = session.metadata?.userId;
-    if (!userId) {
+    const userIdMeta = session.metadata?.userId;
+    if (!userIdMeta) {
       throw new Error("No user ID found in session metadata.");
     }
+    const userIdNumber = Number(userIdMeta);
+    if (!Number.isInteger(userIdNumber)) {
+      throw new Error("Invalid user ID in metadata.");
+    }
 
-    // Query by the UUID directly (userId is already a UUID string from metadata)
+    // Query by numeric primary key (users.id is serial)
     const user = await db
       .select()
       .from(users)
-      .where(eq(users.id, userId)) // userId is already a UUID string
+      .where(eq(users.id, userIdNumber))
       .limit(1);
 
     if (user.length === 0) {
@@ -117,7 +121,7 @@ export async function POST(request: NextRequest) {
     const dbUser = await db
       .select()
       .from(users)
-      .where(eq(users.supabaseId, user.id)) // Both are strings now
+      .where(eq(users.supabaseId, user.id)) // FIX: match Supabase UUID to supabaseId (text)
       .limit(1);
 
     if (dbUser.length === 0) {
@@ -142,8 +146,8 @@ export async function POST(request: NextRequest) {
       cancel_url: `${request.headers.get('origin')}/dashboard/pricing?canceled=true`,
       customer_email: user.email,
       metadata: {
-        userId: dbUser[0].id, // This is the UUID string from your database
-        supabaseId: user.id, // The Supabase user ID
+        userId: String(dbUser[0].id), // ensure stored as string
+        supabaseId: user.id,
         ...metadata,
       },
     });

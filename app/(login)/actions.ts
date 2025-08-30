@@ -35,16 +35,15 @@ const supabase = createClient(
 
 async function logActivity(
   teamId: number | null | undefined,
-  userId: string, // FIXED: Changed from number to string
+  userId: number,
   type: ActivityType,
   ipAddress?: string
 ) {
-  if (teamId === null || teamId === undefined) {
-    return
-  }
+  if (teamId === null || teamId === undefined) return
+
   const newActivity: NewActivityLog = {
     teamId,
-    userId, // FIXED: Removed .toString() since userId is already string
+    userId, // FIX: keep as number (removed toString())
     action: type,
     ipAddress: ipAddress || ''
   }
@@ -79,7 +78,7 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
     const user = await syncUser(authData.user)
     const userWithTeam = await getUserWithTeam(user.id)
     
-    await logActivity(userWithTeam?.teamId, user.id, ActivityType.SIGN_IN) // FIXED: user.id is string
+    await logActivity(userWithTeam?.teamId, user.id, ActivityType.SIGN_IN)
 
     const redirectTo = formData.get('redirect') as string | null
     if (redirectTo === 'checkout') {
@@ -158,7 +157,7 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
     if (invitation) {
       // Add user to team
       await db.insert(teamMembers).values({
-        userId: user.id, // FIXED: user.id is string (UUID)
+        userId: user.id,
         teamId: invitation.teamId,
         role: invitation.role
       })
@@ -169,7 +168,7 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
         .set({ status: 'accepted' })
         .where(eq(invitations.id, invitation.id))
 
-      await logActivity(invitation.teamId, user.id, ActivityType.ACCEPT_INVITATION) // FIXED: user.id is string
+      await logActivity(invitation.teamId, user.id, ActivityType.ACCEPT_INVITATION)
     }
 
     redirect('/dashboard')
@@ -187,7 +186,7 @@ export async function signOut() {
   const user = await getUser()
   if (user) {
     const userWithTeam = await getUserWithTeam(user.id)
-    await logActivity(userWithTeam?.teamId, user.id, ActivityType.SIGN_OUT) // FIXED: user.id is string
+    await logActivity(userWithTeam?.teamId, user.id, ActivityType.SIGN_OUT)
   }
 
   const supabase = await createServerSupabase()
@@ -242,7 +241,7 @@ export const updatePassword = validatedActionWithUser(
     }
 
     const userWithTeam = await getUserWithTeam(user.id)
-    await logActivity(userWithTeam?.teamId, user.id, ActivityType.UPDATE_PASSWORD) // FIXED: user.id is string
+    await logActivity(userWithTeam?.teamId, user.id, ActivityType.UPDATE_PASSWORD)
 
     return {
       success: 'Password updated successfully.'
@@ -277,7 +276,7 @@ export const deleteAccount = validatedActionWithUser(
 
     await logActivity(
       userWithTeam?.teamId,
-      user.id, // FIXED: user.id is string
+      user.id,
       ActivityType.DELETE_ACCOUNT
     );
 
@@ -287,7 +286,7 @@ export const deleteAccount = validatedActionWithUser(
         .delete(teamMembers)
         .where(
           and(
-            eq(teamMembers.userId, user.id), // FIXED: user.id is string
+            eq(teamMembers.userId, user.id),
             eq(teamMembers.teamId, userWithTeam.teamId)
           )
         );
@@ -300,7 +299,7 @@ export const deleteAccount = validatedActionWithUser(
         deletedAt: new Date(),
         email: `${user.email}-${user.id}-deleted` // Ensure email uniqueness
       })
-      .where(eq(users.id, user.id)); // FIXED: user.id is string
+      .where(eq(users.id, user.id));
 
     // Delete user from Supabase
     const { error: deleteError } = await supabase.auth.admin.deleteUser(user.supabaseId)
@@ -358,8 +357,8 @@ export const updateAccount = validatedActionWithUser(
 
     // Update local database
     await Promise.all([
-      db.update(users).set({ name, email }).where(eq(users.id, user.id)), // FIXED: user.id is string
-      logActivity(userWithTeam?.teamId, user.id, ActivityType.UPDATE_ACCOUNT) // FIXED: user.id is string
+      db.update(users).set({ name, email }).where(eq(users.id, user.id)),
+      logActivity(userWithTeam?.teamId, user.id, ActivityType.UPDATE_ACCOUNT)
     ]);
 
     return { name, success: 'Account updated successfully.' };
@@ -391,7 +390,7 @@ export const removeTeamMember = validatedActionWithUser(
 
     await logActivity(
       userWithTeam.teamId,
-      user.id, // FIXED: user.id is string
+      user.id,
       ActivityType.REMOVE_TEAM_MEMBER
     );
 
@@ -449,13 +448,13 @@ export const inviteTeamMember = validatedActionWithUser(
       teamId: userWithTeam.teamId,
       email,
       role,
-      invitedBy: user.id, // FIXED: user.id is string
+      invitedBy: user.id,
       status: 'pending'
     }).returning();
 
     await logActivity(
       userWithTeam.teamId,
-      user.id, // FIXED: user.id is string
+      user.id,
       ActivityType.INVITE_TEAM_MEMBER
     );
 

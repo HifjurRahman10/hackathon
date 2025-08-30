@@ -2,6 +2,8 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db/drizzle';
 import { users, teams, teamMembers } from '@/lib/db/schema';
 import { NextRequest, NextResponse } from 'next/server';
+import { redirect } from 'next/navigation';
+import { getUser } from '@/lib/auth/session';
 import { stripe } from '@/lib/payments/stripe';
 import Stripe from 'stripe';
 
@@ -48,15 +50,17 @@ export async function GET(request: NextRequest) {
       throw new Error('No product ID found for this subscription.');
     }
 
-    const userId = session.client_reference_id;
+    // Get userId from metadata instead of client_reference_id
+    const userId = session.metadata?.userId;
     if (!userId) {
-      throw new Error("No user ID found in session's client_reference_id.");
+      throw new Error("No user ID found in session metadata.");
     }
 
+    // Query by the UUID directly (userId is already a UUID string from metadata)
     const user = await db
       .select()
       .from(users)
-      .where(eq(users.id, Number(userId)))
+      .where(eq(users.id, userId)) // userId is already a UUID string
       .limit(1);
 
     if (user.length === 0) {
@@ -87,11 +91,73 @@ export async function GET(request: NextRequest) {
       })
       .where(eq(teams.id, userTeam[0].teamId));
 
-    // No need to set session manually - Supabase handles this automatically
-    // The user should already be authenticated if they reached the checkout
     return NextResponse.redirect(new URL('/dashboard', request.url));
   } catch (error) {
     console.error('Error handling successful checkout:', error);
     return NextResponse.redirect(new URL('/error', request.url));
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const user = await getUser();
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          error: 'You must be logged in to access this endpoint',
+        },
+        { status: 401 }
+      );
+    }
+
+    const { price, quantity = 1, metadata = {} } = await request.json();
+
+    // Query by supabaseId (text field) to find the user
+    const dbUser = await db
+      .select()
+      .from(users)
+      .where(eq(users.supabaseId, user.id)) // Both are strings now
+      .limit(1);
+
+    if (dbUser.length === 0) {
+      return NextResponse.json(
+        {
+          error: 'User not found in database',
+        },
+        { status: 404 }
+      );
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      billing_address_collection: 'required',
+      line_items: [
+        {
+          price: price,
+          quantity: quantity,
+        },
+      ],
+      mode: 'subscription',
+      success_url: `${request.headers.get('origin')}/api/stripe/checkout?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${request.headers.get('origin')}/dashboard/pricing?canceled=true`,
+      customer_email: user.email,
+      metadata: {
+        userId: dbUser[0].id, // This is the UUID string from your database
+        supabaseId: user.id, // The Supabase user ID
+        ...metadata,
+      },
+    });
+
+    return NextResponse.json({
+      url: session.url,
+    });
+  } catch (error) {
+    console.error('Error creating checkout session:', error);
+    return NextResponse.json(
+      {
+        error: 'Failed to create checkout session',
+      },
+      { status: 500 }
+    );
   }
 }

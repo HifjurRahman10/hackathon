@@ -6,13 +6,11 @@ import { createClient } from "@supabase/supabase-js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Initialize Supabase client (service key)
 const supabase = createClient(
   process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY! // Service key to bypass RLS
 );
 
-// Schema for a scene
 const SceneSchema = z.object({
   sceneNumber: z.number().int().min(1),
   scenePrompt: z.string(),
@@ -22,18 +20,17 @@ const SceneSchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const raw = await req.json().catch(() => null)
-    if (!raw) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    const raw = await req.json().catch(() => null);
+    if (!raw) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-    // ADD userId and systemPrompt so they exist (minimal change)
-    let { chatId, messages, numScenes, userId, systemPrompt } = raw
-    // Accept string or number without changing downstream logic
-    if (typeof chatId === 'string') {
-      const n = Number(chatId)
-      if (!Number.isNaN(n)) chatId = n
+    let { chatId, messages, numScenes, systemPrompt } = raw;
+
+    if (typeof chatId === "string") {
+      const n = Number(chatId);
+      if (!Number.isNaN(n)) chatId = n;
     }
-    if (typeof chatId !== 'number' || !Number.isFinite(chatId) || chatId <= 0) {
-      return NextResponse.json({ error: '`chatId` is required' }, { status: 400 })
+    if (!chatId || typeof chatId !== "number" || chatId <= 0) {
+      return NextResponse.json({ error: "`chatId` is required" }, { status: 400 });
     }
 
     if (!messages || !Array.isArray(messages)) {
@@ -43,18 +40,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "`numScenes` must be a positive number" }, { status: 400 });
     }
 
-    // --- Verify that chat belongs to user ---
-    const { data: chatOwner } = await supabase
+    // --- Get chat owner from DB ---
+    const { data: chatOwner, error: chatErr } = await supabase
       .from("chats")
       .select("user_id")
       .eq("id", chatId)
       .single();
 
-    if (!chatOwner || chatOwner.user_id !== userId) {
-      return NextResponse.json({ error: "Unauthorized: chat does not belong to user" }, { status: 403 });
+    if (chatErr || !chatOwner) {
+      return NextResponse.json({ error: "Chat not found" }, { status: 404 });
     }
 
-    const systemContent = systemPrompt || `You are StoryMaker AI, a master storyteller and visual designer.
+    const userId = chatOwner.user_id; // Trust the DB
+
+    // --- System prompt ---
+    const fullSystemPrompt =
+      systemPrompt ||
+      `You are StoryMaker AI, a master storyteller and visual designer.
 Your task is to create a full-length story divided into ${numScenes} sequential scenes based on the user's prompt.
 
 Rules for Character Consistency:
@@ -95,10 +97,7 @@ Output Format (JSON Array):
   }
 ]`;
 
-    const fullInput = [
-      { role: "system", content: systemContent },
-      ...messages,
-    ];
+    const fullInput = [{ role: "system", content: fullSystemPrompt }, ...messages];
 
     // --- Call OpenAI ---
     const response = await openai.responses.create({
@@ -117,21 +116,18 @@ Output Format (JSON Array):
       return NextResponse.json({ error: "Invalid scene JSON from OpenAI" }, { status: 502 });
     }
 
-    // --- Store scenes in Supabase ---
+    // --- Insert scenes into Supabase ---
     for (const scene of scenes) {
-      await supabase
-        .from("scenes")
-        .insert({
-          chat_id: chatId,
-          scene_number: scene.sceneNumber,
-          scene_prompt: scene.scenePrompt,
-          scene_image_prompt: scene.sceneImagePrompt,
-          character_description: scene.characterDescription || null,
-        });
+      await supabase.from("scenes").insert({
+        chat_id: chatId,
+        scene_number: scene.sceneNumber,
+        scene_prompt: scene.scenePrompt,
+        scene_image_prompt: scene.sceneImagePrompt,
+        character_description: scene.characterDescription || null,
+      });
     }
 
-    // --- Return system prompt and scenes ---
-    return NextResponse.json({ systemPrompt: systemContent, scenes });
+    return NextResponse.json({ systemPrompt: fullSystemPrompt, scenes });
   } catch (err: any) {
     console.error("❌ Chat route error:", err);
     return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });

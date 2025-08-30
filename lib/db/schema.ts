@@ -5,6 +5,7 @@ import {
   text,
   timestamp,
   integer,
+  uuid,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
@@ -66,9 +67,9 @@ export const invitations = pgTable('invitations', {
 // -------------------- Chats --------------------
 export const chats = pgTable('chats', {
   id: serial('id').primaryKey(),
-  userId: integer('user_id').notNull().references(() => users.id),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 // -------------------- Messages --------------------

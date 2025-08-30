@@ -16,21 +16,23 @@ export async function POST(req: Request) {
     if (!prompt || typeof prompt !== "string") {
       return NextResponse.json({ error: "`prompt` is required" }, { status: 400 });
     }
+    if (!chatId || !sceneNumber) {
+      return NextResponse.json({ error: "`chatId` and `sceneNumber` are required" }, { status: 400 });
+    }
 
-    const image = await openai.images.generate({
+    // --- Generate image ---
+    const imageResponse = await openai.images.generate({
       model: "gpt-image-1",
       prompt,
       size: "1024x1024",
-      quality: "medium",
+      quality:"low",
       n: 1,
     });
 
-    const imgData = image.data?.[0];
-    let imageUrl: string | null = imgData?.url || (imgData?.b64_json ? `data:image/png;base64,${imgData.b64_json}` : null);
+    const imgData = imageResponse.data?.[0];
+    let imageUrl: string | null = imgData?.url || null;
 
-    if (!imageUrl) return NextResponse.json({ error: "No image returned" }, { status: 502 });
-
-    // --- Upload base64 image to Supabase ---
+    // --- If base64 returned, upload to Supabase storage ---
     if (imgData?.b64_json) {
       const buffer = Buffer.from(imgData.b64_json, "base64");
       const fileName = `scene_${chatId}_${sceneNumber}_${Date.now()}.png`;
@@ -40,16 +42,24 @@ export async function POST(req: Request) {
         .upload(fileName, buffer, { contentType: "image/png", upsert: true });
 
       if (uploadError) {
+        console.error("Supabase upload error:", uploadError);
         return NextResponse.json({ error: uploadError.message }, { status: 500 });
       }
 
-      const { data } = supabase.storage.from("user_uploads").getPublicUrl(fileName);
-      imageUrl = data.publicUrl;
+      const { data: publicData } = supabase.storage
+        .from("user_uploads")
+        .getPublicUrl(fileName);
+
+      imageUrl = publicData?.publicUrl || null;
+    }
+
+    if (!imageUrl) {
+      return NextResponse.json({ error: "Failed to generate image URL" }, { status: 502 });
     }
 
     return NextResponse.json({ imageUrl });
   } catch (err: any) {
-    console.error(err);
+    console.error("genImage error:", err);
     return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
   }
 }

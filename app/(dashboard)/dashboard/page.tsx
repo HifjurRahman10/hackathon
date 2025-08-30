@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { sb } from "@/lib/auth/supabase-browser";
 
 const supabase = sb();
@@ -9,90 +9,67 @@ export default function DashboardPage() {
   const [activeChatId, setActiveChatId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [numScenes, setNumScenes] = useState(3);
-  const [messageInput, setMessageInput] = useState("");
+  const [inputs, setInputs] = useState<Record<number, string>>({});
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Fetch chats for current user
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   useEffect(() => {
     const fetchChats = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Map Supabase Auth UID to your users.id UUID
-      const { data: currentUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("supabase_id", user.id)
-        .single();
-
-      if (!currentUser) return;
-
       const { data, error } = await supabase
         .from("chats")
         .select("*, scenes(*)")
-        .eq("user_id", currentUser.id)
+        .eq("user_id", user.id)
         .order("created_at", { ascending: false });
 
       if (!error && data) {
-        const withMessages = data.map((c: any) => ({ ...c, messages: c.messages || [] }));
-        setChats(withMessages);
+        const withMessages = data.map((c: any) => ({
+          ...c,
+          messages: c.messages || [],
+        }));
 
-        if (!activeChatId && data.length > 0) setActiveChatId(data[0].id);
+        setChats(withMessages);
+        if (withMessages.length) setActiveChatId(withMessages[0].id);
+
+        const savedInputs: Record<number, string> = {};
+        withMessages.forEach((c: any) => savedInputs[c.id] = "");
+        setInputs(savedInputs);
       }
     };
 
     fetchChats();
-  }, [activeChatId]);
+  }, []);
 
-  // Create new chat
-  const newChat = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+  const activeChat = chats.find((c) => c.id === activeChatId);
 
-    const { data: currentUser } = await supabase
-      .from("users")
-      .select("id")
-      .eq("supabase_id", user.id)
-      .single();
-
-    if (!currentUser) return;
-
-    const chatTitle = `New Chat ${chats.length + 1}`;
-
-    const { data, error } = await supabase
-      .from("chats")
-      .insert([{ title: chatTitle, user_id: currentUser.id }])
-      .select()
-      .single();
-
-    if (!error && data) {
-      setChats((prev) => [...prev, { ...data, scenes: [], messages: [] }]);
-      setActiveChatId(data.id);
-    } else {
-      console.error("Failed to create chat:", error);
-    }
+  const handleInputChange = (value: string) => {
+    if (!activeChatId) return;
+    setInputs((prev) => ({ ...prev, [activeChatId]: value }));
   };
 
-  // Send message → generate scenes
   const sendMessage = async () => {
-    if (!activeChatId || !messageInput.trim()) return;
+    if (!activeChatId) return;
+    const messageInput = inputs[activeChatId]?.trim();
+    if (!messageInput) return;
 
     setLoading(true);
     try {
       const chat = chats.find((c) => c.id === activeChatId);
       if (!chat) return;
 
-      // Append user message locally
-      const userMessage = { role: "user", content: messageInput };
-      chat.messages = [...chat.messages, userMessage];
-      setMessageInput("");
-
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chatId: chat.id,
-          messages: chat.messages,
+          messages: [...chat.messages, { role: "user", content: messageInput }],
           numScenes,
+          userId: (await supabase.auth.getUser()).data.user?.id,
         }),
       });
 
@@ -103,11 +80,18 @@ export default function DashboardPage() {
 
       setChats((prev) =>
         prev.map((c) =>
-          c.id === chat.id ? { ...c, scenes: updatedScenes, messages: chat.messages } : c
+          c.id === chat.id
+            ? { ...c, scenes: updatedScenes, messages: [...c.messages, { role: "user", content: messageInput }] }
+            : c
         )
       );
 
-      await Promise.all(data.scenes.map((scene: any) => generateImage(scene)));
+      setInputs((prev) => ({ ...prev, [chat.id]: "" }));
+
+      // Generate images in parallel
+      await Promise.all(updatedScenes.map((scene: any) => generateImage(scene)));
+
+      scrollToBottom();
     } catch (err) {
       console.error(err);
     } finally {
@@ -115,7 +99,6 @@ export default function DashboardPage() {
     }
   };
 
-  // Generate image for a scene
   const generateImage = async (scene: any, forceRegenerate = false) => {
     if (!activeChatId) return;
 
@@ -123,7 +106,9 @@ export default function DashboardPage() {
       try {
         const res = await fetch(scene.imageUrl, { method: "HEAD" });
         if (res.ok) return;
-      } catch {}
+      } catch {
+        console.warn("Supabase URL expired, regenerating...");
+      }
     }
 
     try {
@@ -159,111 +144,163 @@ export default function DashboardPage() {
     }
   };
 
-  const activeChat = chats.find((c) => c.id === activeChatId);
+  const createNewChat = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("chats")
+      .insert([{ title: "New Chat", user_id: user.id }])
+      .select()
+      .single();
+
+    if (!error && data) {
+      const newChatObj = { ...data, scenes: [], messages: [] };
+      setChats((prev) => [newChatObj, ...prev]);
+      setActiveChatId(data.id);
+      setInputs((prev) => ({ ...prev, [data.id]: "" }));
+    }
+  };
+
+  const deleteChat = async (chatId: number) => {
+    if (!confirm("Are you sure you want to delete this chat?")) return;
+
+    const { error } = await supabase
+      .from("chats")
+      .delete()
+      .eq("id", chatId);
+
+    if (!error) {
+      setChats((prev) => prev.filter((c) => c.id !== chatId));
+      setInputs((prev) => {
+        const copy = { ...prev };
+        delete copy[chatId];
+        return copy;
+      });
+      if (activeChatId === chatId) setActiveChatId(null);
+    } else {
+      console.error(error);
+    }
+  };
 
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
       <div className="w-72 border-r border-gray-200 flex flex-col p-4">
         <button
-          onClick={newChat}
+          onClick={createNewChat}
           className="mb-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
         >
-          + New Chat
+          New Chat
         </button>
-
-        <div className="mb-4 flex items-center space-x-2">
-          <label className="text-gray-700">Scenes:</label>
-          <input
-            type="number"
-            min={1}
-            max={10}
-            value={numScenes}
-            onChange={(e) => setNumScenes(Number(e.target.value))}
-            className="w-16 px-2 py-1 border rounded"
-          />
-        </div>
 
         <div className="flex-1 overflow-y-auto">
           <ul className="space-y-2">
             {chats.map((chat) => (
               <li
                 key={chat.id}
-                onClick={() => setActiveChatId(chat.id)}
-                className={`p-2 rounded cursor-pointer transition ${
+                className={`p-2 rounded flex justify-between items-center cursor-pointer transition ${
                   chat.id === activeChatId
                     ? "bg-blue-100 font-semibold"
                     : "hover:bg-gray-100"
                 }`}
               >
-                {chat.title || `Chat #${chat.id}`}
+                <span onClick={() => setActiveChatId(chat.id)}>
+                  {chat.title || "Untitled Chat"}
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteChat(chat.id);
+                  }}
+                  className="text-red-500 hover:text-red-700 px-2"
+                >
+                  🗑️
+                </button>
               </li>
             ))}
           </ul>
         </div>
       </div>
 
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col p-6">
+      {/* Main content */}
+      <div className="flex-1 flex flex-col p-6 overflow-y-auto">
         {activeChat ? (
           <>
-            <div className="flex-1 overflow-y-auto mb-4 space-y-4">
-              {activeChat.messages.map((msg: any, idx: number) => (
-                <div
-                  key={idx}
-                  className={`p-2 rounded max-w-xs ${
-                    msg.role === "user"
-                      ? "bg-blue-600 text-white self-end"
-                      : "bg-gray-200 text-gray-800 self-start"
-                  }`}
-                >
-                  {msg.content}
-                </div>
-              ))}
+            <h2 className="text-xl font-bold mb-4">{activeChat.title}</h2>
 
-              {activeChat.scenes.map((scene: any) => (
-                <div key={scene.sceneNumber} className="bg-white p-4 rounded shadow-sm">
-                  <p className="font-semibold mb-2">Scene {scene.sceneNumber}</p>
-                  <p className="mb-2">{scene.scenePrompt || scene.sceneText}</p>
-                  {scene.imageUrl ? (
-                    <img
-                      src={scene.imageUrl}
-                      alt={`Scene ${scene.sceneNumber}`}
-                      className="w-full rounded border"
-                    />
-                  ) : (
-                    <button
-                      onClick={() => generateImage(scene)}
-                      className="mt-2 px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition"
-                    >
-                      Generate Image
-                    </button>
-                  )}
-                </div>
-              ))}
+            {/* Messages & Input */}
+            <div className="flex-1 overflow-y-auto mb-4">
+              <div className="space-y-2">
+                {activeChat.messages.map((msg: any, i: number) => (
+                  <div
+                    key={i}
+                    className={`p-2 rounded max-w-[80%] ${
+                      msg.role === "user"
+                        ? "bg-green-100 ml-auto"
+                        : "bg-gray-200"
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
+                ))}
+                {activeChat.scenes.map((scene: any) => (
+                  <div
+                    key={scene.sceneNumber}
+                    className="bg-white p-4 rounded shadow-sm mt-2"
+                  >
+                    <p className="font-semibold mb-2">Scene {scene.sceneNumber}</p>
+                    <p className="mb-2">{scene.scenePrompt}</p>
+                    {scene.imageUrl ? (
+                      <img
+                        src={scene.imageUrl}
+                        alt={`Scene ${scene.sceneNumber}`}
+                        className="w-full rounded border"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => generateImage(scene, true)}
+                        className="mt-2 px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition"
+                      >
+                        Generate Image
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
             </div>
 
+            {/* Input */}
             <div className="flex items-center space-x-2">
               <input
                 type="text"
-                value={messageInput}
-                onChange={(e) => setMessageInput(e.target.value)}
+                className="flex-1 border rounded px-3 py-2"
+                value={activeChatId !== null ? (inputs[activeChatId] ?? "") : ""}  // FIX: avoid indexing with null
+                onChange={(e) => handleInputChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") sendMessage();
+                }}
                 placeholder="Type a message..."
-                className="flex-1 px-4 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+              />
+              <input
+                type="number"
+                className="w-20 border rounded px-2 py-1"
+                value={numScenes}
+                min={1}
+                onChange={(e) => setNumScenes(Number(e.target.value))}
               />
               <button
                 onClick={sendMessage}
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition"
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+                disabled={loading}
               >
-                Send
+                {loading ? "Sending..." : "Send"}
               </button>
             </div>
-
-            {loading && <p className="text-gray-500 mt-2">Loading...</p>}
           </>
         ) : (
-          <p className="text-gray-500">No chats yet. Click "New Chat" to start!</p>
+          <p className="text-gray-500">Select a chat to view scenes</p>
         )}
       </div>
     </div>

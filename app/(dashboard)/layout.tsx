@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useRouter, usePathname } from 'next/navigation';
-import { getBrowserSupabase } from '@/lib/auth/supabase-browser';
+import { getBrowserSupabase } from '@/lib/auth/supabase-browser'
 import type { User, AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 function getInitials(user: User | null): string {

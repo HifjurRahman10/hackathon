@@ -5,21 +5,22 @@ import {
 } from '@/lib/db/queries';
 
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-04-30.basil'
+  apiVersion: '2024-12-18.acacia'
 });
 
-// Make all non‑used fields optional; allow teamMembers
+// Updated BillingTeam type to match your UUID schema
 export type BillingTeam = {
   id: number;
   name: string;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
-  stripeProductId?: string | null;
   planName: string | null;
   subscriptionStatus: string | null;
-  createdAt?: Date;
-  updatedAt?: Date;
-  teamMembers?: { id: number; name: string | null; email: string }[];
+  teamMembers: {
+    id: string; // Changed from number to string to match UUID
+    name: string | null;
+    email: string;
+  }[];
 };
 
 export async function createCheckoutSession({
@@ -29,16 +30,30 @@ export async function createCheckoutSession({
   team: BillingTeam;
   priceId: string;
 }) {
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+  const origin = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
-    line_items: [{ price: priceId, quantity: 1 }],
-    success_url: `${baseUrl}/dashboard?success=1`,
-    cancel_url: `${baseUrl}/pricing?canceled=1`,
-    client_reference_id: String(team.id),
-    metadata: { teamId: String(team.id) }
+    payment_method_types: ['card'],
+    line_items: [
+      {
+        price: priceId,
+        quantity: 1
+      }
+    ],
+    success_url: `${origin}/api/stripe/checkout?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/dashboard/pricing?canceled=true`,
+    metadata: {
+      teamId: team.id.toString(),
+      // Store one of the team member IDs for user reference
+      userId: team.teamMembers[0]?.id || ''
+    }
   });
-  if (!session.url) throw new Error('No checkout session URL from Stripe');
+
+  if (!session.url) {
+    throw new Error('Failed to create checkout session');
+  }
+
   return session.url;
 }
 

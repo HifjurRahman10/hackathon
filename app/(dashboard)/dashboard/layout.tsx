@@ -10,10 +10,8 @@ export default function DashboardLayout({
   const pathname = usePathname();
 
   return (
-    <div className="flex flex-col h-screen max-w-7xl mx-auto w-full">
-      <div className="flex flex-1 overflow-hidden">
-        <main className="flex-1 overflow-hidden">{children}</main>
-      </div>
+    <div className="flex h-screen w-full bg-background text-foreground">
+      <main className="flex-1 mx-auto max-w-7xl h-full">{children}</main>
     </div>
   );
 }

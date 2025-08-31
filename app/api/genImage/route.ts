@@ -11,13 +11,13 @@ const supabase = createClient(
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { prompt, sceneNumber, chatId } = body;
+    const { prompt, sceneNumber, chatId, userId } = body;
 
     if (!prompt || typeof prompt !== "string") {
       return NextResponse.json({ error: "`prompt` is required" }, { status: 400 });
     }
-    if (!chatId || !sceneNumber) {
-      return NextResponse.json({ error: "`chatId` and `sceneNumber` are required" }, { status: 400 });
+    if (!chatId || !sceneNumber || !userId) {
+      return NextResponse.json({ error: "`userId`, `chatId` and `sceneNumber` are required" }, { status: 400 });
     }
 
     // --- Generate image ---
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
       model: "gpt-image-1",
       prompt,
       size: "1024x1024",
-      quality:"low",
+      quality: "low",
       n: 1,
     });
 
@@ -35,11 +35,16 @@ export async function POST(req: Request) {
     // --- If base64 returned, upload to Supabase storage ---
     if (imgData?.b64_json) {
       const buffer = Buffer.from(imgData.b64_json, "base64");
-      const fileName = `scene_${chatId}_${sceneNumber}_${Date.now()}.png`;
+
+      // structured path: userId/chatId/{sceneNumber}_image.png
+      const fileName = `${userId}/${chatId}/${sceneNumber}_image.png`;
 
       const { error: uploadError } = await supabase.storage
         .from("user_upload")
-        .upload(fileName, buffer, { contentType: "image/png", upsert: true });
+        .upload(fileName, buffer, {
+          contentType: "image/png",
+          upsert: true, // overwrite if same scene regenerated
+        });
 
       if (uploadError) {
         console.error("Supabase upload error:", uploadError);

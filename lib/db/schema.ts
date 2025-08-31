@@ -7,23 +7,23 @@ import {
   integer,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm'; // FIX: Import sql from drizzle-orm
 
 // -------------------- Users --------------------
 export const users = pgTable('users', {
-  id: uuid('id').primaryKey(),
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   supabaseId: text('supabase_id').notNull().unique(),
+  email: varchar('email', { length: 255 }).notNull(),
   name: varchar('name', { length: 100 }),
-  email: varchar('email', { length: 255 }).notNull().unique(),
   role: varchar('role', { length: 20 }).notNull().default('member'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
   deletedAt: timestamp('deleted_at'),
 });
 
-// -------------------- Teams --------------------
+// Add defaults to other UUID primary keys too:
 export const teams = pgTable('teams', {
-  id: uuid('id').primaryKey(),
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   name: varchar('name', { length: 100 }).notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -36,7 +36,7 @@ export const teams = pgTable('teams', {
 
 // -------------------- Team Members --------------------
 export const teamMembers = pgTable('team_members', {
-  id: uuid('id').primaryKey(),
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   userId: uuid('user_id').notNull().references(() => users.id),
   teamId: uuid('team_id').notNull().references(() => teams.id),
   role: varchar('role', { length: 50 }).notNull(),
@@ -55,7 +55,7 @@ export const activityLogs = pgTable('activity_logs', {
 
 // -------------------- Invitations --------------------
 export const invitations = pgTable('invitations', {
-  id: uuid('id').primaryKey(),
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   teamId: uuid('team_id').notNull().references(() => teams.id),
   email: varchar('email', { length: 255 }).notNull(),
   role: varchar('role', { length: 50 }).notNull(),
@@ -66,7 +66,7 @@ export const invitations = pgTable('invitations', {
 
 // -------------------- Chats --------------------
 export const chats = pgTable('chats', {
-  id: uuid('id').primaryKey(),
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -74,7 +74,7 @@ export const chats = pgTable('chats', {
 
 // -------------------- Messages --------------------
 export const messages = pgTable('messages', {
-  id: uuid('id').primaryKey(),
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   chatId: uuid('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
   userId: uuid('user_id').notNull().references(() => users.id),
   content: text('content').notNull(),
@@ -84,7 +84,7 @@ export const messages = pgTable('messages', {
 
 // -------------------- Scenes --------------------
 export const scenes = pgTable('scenes', {
-  id: uuid('id').primaryKey(),
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   chatId: uuid('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
   sceneNumber: integer('scene_number').notNull(),
   scenePrompt: text('scene_prompt').notNull(),

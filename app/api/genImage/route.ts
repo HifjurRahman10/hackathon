@@ -38,7 +38,7 @@ export async function POST(req: Request) {
       const fileName = `scene_${chatId}_${sceneNumber}_${Date.now()}.png`;
 
       const { error: uploadError } = await supabase.storage
-        .from("user_uploads")
+        .from("user_upload")
         .upload(fileName, buffer, { contentType: "image/png", upsert: true });
 
       if (uploadError) {

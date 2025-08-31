@@ -150,15 +150,18 @@ export default function DashboardPage() {
 
     const { data, error } = await supabase
       .from("chats")
-      .insert([{ title: "New Chat", userId: user.id }])
+      .insert([{ 
+        title: "New Chat", 
+        user_id: user.id  // FIX: change userId to user_id
+      }])
       .select()
       .single();
 
-    if (!error && data) {
-      const newChatObj = { ...data, scenes: [], messages: [] };
-      setChats((prev) => [newChatObj, ...prev]);
+    if (data && !error) {
+      setChats(prev => [...prev, { ...data, scenes: [], messages: [] }]);
       setActiveChatId(data.id);
-      setInputs((prev) => ({ ...prev, [data.id]: "" }));
+    } else if (error) {
+      console.error("Insert chat error:", error.message);
     }
   };
 

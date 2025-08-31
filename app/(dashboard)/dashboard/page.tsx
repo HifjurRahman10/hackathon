@@ -150,7 +150,7 @@ export default function DashboardPage() {
 
     const { data, error } = await supabase
       .from("chats")
-      .insert([{ title: "New Chat", user_id: user.id }])
+      .insert([{ title: "New Chat", userId: user.id }])
       .select()
       .single();
 

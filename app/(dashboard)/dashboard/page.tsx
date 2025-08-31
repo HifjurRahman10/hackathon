@@ -6,10 +6,10 @@ const supabase = sb();
 
 export default function DashboardPage() {
   const [chats, setChats] = useState<any[]>([]);
-  const [activeChatId, setActiveChatId] = useState<number | null>(null);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null); // FIX: Changed to string for UUID
   const [loading, setLoading] = useState(false);
   const [numScenes, setNumScenes] = useState(3);
-  const [inputs, setInputs] = useState<Record<number, string>>({});
+  const [inputs, setInputs] = useState<Record<string, string>>({}); // FIX: Changed to string keys
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -21,10 +21,19 @@ export default function DashboardPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // FIX: Get local user ID first
+      const { data: localUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('supabase_id', user.id)
+        .single();
+
+      if (!localUser) return;
+
       const { data, error } = await supabase
         .from("chats")
         .select("*, scenes(*)")
-        .eq("user_id", user.id)
+        .eq("user_id", localUser.id) // FIX: Use local user ID
         .order("created_at", { ascending: false });
 
       if (!error && data) {
@@ -36,7 +45,7 @@ export default function DashboardPage() {
         setChats(withMessages);
         if (withMessages.length) setActiveChatId(withMessages[0].id);
 
-        const savedInputs: Record<number, string> = {};
+        const savedInputs: Record<string, string> = {}; // FIX: Changed to string keys
         withMessages.forEach((c: any) => savedInputs[c.id] = "");
         setInputs(savedInputs);
       }
@@ -69,7 +78,6 @@ export default function DashboardPage() {
           chatId: chat.id,
           messages: [...chat.messages, { role: "user", content: messageInput }],
           numScenes,
-
           userId: (await supabase.auth.getUser()).data.user?.id,
         }),
       });
@@ -146,197 +154,207 @@ export default function DashboardPage() {
   };
 
   const createNewChat = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    // FIX: Sync user to local database first
     try {
-      // Check if user exists in local db, if not create them
-      const { data: existingUser } = await supabase
-        .from('users')
-        .select('id')
-        .eq('supabase_id', user.id)
-        .single();
-
-      if (!existingUser) {
-        // Create user in local database
-        const { data: newUser, error: userError } = await supabase
-          .from('users')
-          .insert([{
-            supabase_id: user.id,
-            email: user.email || '',
-            name: user.user_metadata?.full_name || '',
-            role: 'member'
-          }])
-          .select()
-          .single();
-
-        if (userError) {
-          console.error('Failed to create user:', userError);
-          return;
-        }
+      // Get current authenticated user
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (!authUser) {
+        console.error('No authenticated user');
+        return;
       }
 
-      // Now create the chat
+      // Find local user by supabase_id
+      let { data: localUser, error: userError } = await supabase // FIX: Changed to let
+        .from('users')
+        .select('id')
+        .eq('supabase_id', authUser.id)
+        .single();
+
+      if (userError || !localUser) {
+        console.error('Local user not found:', userError);
+        // Try to create the user if they don't exist
+        const { data: newUser, error: createError } = await supabase
+          .from('users')
+          .insert({
+            supabase_id: authUser.id,
+            email: authUser.email || '',
+            name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || '',
+            role: 'member'
+          })
+          .select('id')
+          .single();
+
+        if (createError) {
+          console.error('Failed to create user:', createError);
+          return;
+        }
+        
+        // Use the newly created user
+        localUser = newUser; // FIX: Now works because localUser is let
+      }
+
+      // Create chat with the local user ID
       const { data, error } = await supabase
         .from("chats")
-        .insert([{ 
-          title: "New Chat", 
-          user_id: user.id
-        }])
+        .insert({
+          title: "New Chat",
+          user_id: localUser.id
+        })
         .select()
         .single();
 
-      if (data && !error) {
-        setChats(prev => [...prev, { ...data, scenes: [], messages: [] }]);
-        setActiveChatId(data.id);
-      } else if (error) {
+      if (error) {
         console.error("Insert chat error:", error.message);
+        return;
+      }
+
+      if (data) { // FIX: Completed the if statement
+        setChats(prev => [{ ...data, scenes: [], messages: [] }, ...prev]);
+        setActiveChatId(data.id);
+        setInputs(prev => ({ ...prev, [data.id]: "" }));
       }
     } catch (err) {
       console.error('Error creating chat:', err);
     }
   };
 
-  const deleteChat = async (chatId: number) => {
-    if (!confirm("Are you sure you want to delete this chat?")) return;
-
-    const { error } = await supabase
-      .from("chats")
-      .delete()
-      .eq("id", chatId);
-
-    if (!error) {
-      setChats((prev) => prev.filter((c) => c.id !== chatId));
-      setInputs((prev) => {
-        const copy = { ...prev };
-        delete copy[chatId];
-        return copy;
-      });
-      if (activeChatId === chatId) setActiveChatId(null);
-    } else {
-      console.error(error);
-    }
-  };
-
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 flex">
       {/* Sidebar */}
-      <div className="w-72 border-r border-gray-200 flex flex-col p-4">
-        <button
-          onClick={createNewChat}
-          className="mb-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-        >
-          New Chat
-        </button>
-
+      <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
+        <div className="p-4 border-b border-gray-200">
+          <button
+            onClick={createNewChat}
+            className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            New Chat
+          </button>
+        </div>
+        
         <div className="flex-1 overflow-y-auto">
-          <ul className="space-y-2">
-            {chats.map((chat) => (
-              <li
-                key={chat.id}
-                className={`p-2 rounded flex justify-between items-center cursor-pointer transition ${
-                  chat.id === activeChatId
-                    ? "bg-blue-100 font-semibold"
-                    : "hover:bg-gray-100"
-                }`}
-              >
-                <span onClick={() => setActiveChatId(chat.id)}>
-                  {chat.title || "Untitled Chat"}
-                </span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteChat(chat.id);
-                  }}
-                  className="text-red-500 hover:text-red-700 px-2"
-                >
-                  🗑️
-                </button>
-              </li>
-            ))}
-          </ul>
+          {chats.map((chat) => (
+            <div
+              key={chat.id}
+              onClick={() => setActiveChatId(chat.id)}
+              className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
+                activeChatId === chat.id ? 'bg-blue-50 border-blue-200' : ''
+              }`}
+            >
+              <h3 className="font-medium text-gray-900 truncate">{chat.title}</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                {new Date(chat.created_at).toLocaleDateString()}
+              </p>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col p-6 overflow-y-auto">
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col">
         {activeChat ? (
           <>
-            <h2 className="text-xl font-bold mb-4">{activeChat.title}</h2>
+            {/* Chat Header */}
+            <div className="bg-white border-b border-gray-200 p-4">
+              <h1 className="text-xl font-semibold text-gray-900">{activeChat.title}</h1>
+            </div>
 
-            {/* Messages & Input */}
-            <div className="flex-1 overflow-y-auto mb-4">
-              <div className="space-y-2">
-                {activeChat.messages.map((msg: any, i: number) => (
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {activeChat.messages?.map((message: any, index: number) => (
+                <div
+                  key={index}
+                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
                   <div
-                    key={i}
-                    className={`p-2 rounded max-w-[80%] ${
-                      msg.role === "user"
-                        ? "bg-green-100 ml-auto"
-                        : "bg-gray-200"
+                    className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                      message.role === 'user'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-900'
                     }`}
                   >
-                    {msg.content}
+                    {message.content}
                   </div>
-                ))}
-                {activeChat.scenes.map((scene: any) => (
-                  <div
-                    key={scene.sceneNumber}
-                    className="bg-white p-4 rounded shadow-sm mt-2"
-                  >
-                    <p className="font-semibold mb-2">Scene {scene.sceneNumber}</p>
-                    <p className="mb-2">{scene.scenePrompt}</p>
-                    {scene.imageUrl ? (
+                </div>
+              ))}
+
+              {/* Scenes */}
+              {activeChat.scenes?.map((scene: any, index: number) => (
+                <div key={index} className="bg-white rounded-lg border border-gray-200 p-6">
+                  <h3 className="text-lg font-semibold mb-3">Scene {scene.sceneNumber}</h3>
+                  <p className="text-gray-700 mb-4">{scene.scenePrompt}</p>
+                  
+                  {scene.imageUrl && (
+                    <div className="mb-4">
                       <img
                         src={scene.imageUrl}
                         alt={`Scene ${scene.sceneNumber}`}
-                        className="w-full rounded border"
+                        className="w-full max-w-md mx-auto rounded-lg"
                       />
-                    ) : (
                       <button
                         onClick={() => generateImage(scene, true)}
-                        className="mt-2 px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition"
+                        className="mt-2 text-sm text-blue-600 hover:text-blue-800"
                       >
-                        Generate Image
+                        Regenerate Image
                       </button>
-                    )}
-                  </div>
-                ))}
-                <div ref={messagesEndRef} />
-              </div>
+                    </div>
+                  )}
+                  
+                  {scene.characterDescription && (
+                    <div className="text-sm text-gray-600">
+                      <strong>Character:</strong> {scene.characterDescription}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {loading && (
+                <div className="text-center text-gray-500">
+                  Generating response...
+                </div>
+              )}
+              
+              <div ref={messagesEndRef} />
             </div>
 
-            {/* Input */}
-            <div className="flex items-center space-x-2">
-              <input
-                type="text"
-                className="flex-1 border rounded px-3 py-2"
-                value={activeChatId !== null ? (inputs[activeChatId] ?? "") : ""}  // FIX: avoid indexing with null
-                onChange={(e) => handleInputChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") sendMessage();
-                }}
-                placeholder="Type a message..."
-              />
-              <input
-                type="number"
-                className="w-20 border rounded px-2 py-1"
-                value={numScenes}
-                min={1}
-                onChange={(e) => setNumScenes(Number(e.target.value))}
-              />
-              <button
-                onClick={sendMessage}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-                disabled={loading}
-              >
-                {loading ? "Sending..." : "Send"}
-              </button>
+            {/* Input Area */}
+            <div className="bg-white border-t border-gray-200 p-4">
+              <div className="flex items-center space-x-4 mb-4">
+                <label className="text-sm font-medium text-gray-700">
+                  Number of scenes:
+                </label>
+                <select
+                  value={numScenes}
+                  onChange={(e) => setNumScenes(Number(e.target.value))}
+                  className="border border-gray-300 rounded px-3 py-1 text-sm"
+                >
+                  {[1, 2, 3, 4, 5].map(num => (
+                    <option key={num} value={num}>{num}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="flex space-x-4">
+                <textarea
+                  value={activeChatId ? inputs[activeChatId] || '' : ''} // FIX: Check null
+                  onChange={(e) => handleInputChange(e.target.value)}
+                  placeholder="Describe your story..."
+                  className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  rows={3}
+                  disabled={loading}
+                />
+                <button
+                  onClick={sendMessage}
+                  disabled={loading || !activeChatId || !inputs[activeChatId]?.trim()} // FIX: Check null
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Send
+                </button>
+              </div>
             </div>
           </>
         ) : (
-          <p className="text-gray-500">Select a chat to view scenes</p>
+          <div className="flex-1 flex items-center justify-center text-gray-500">
+            Select a chat or create a new one to get started
+          </div>
         )}
       </div>
     </div>

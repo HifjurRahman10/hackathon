@@ -7,7 +7,7 @@ import {
   integer,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { relations, sql } from 'drizzle-orm'; // FIX: Import sql from drizzle-orm
+import { relations, sql } from 'drizzle-orm';
 
 // -------------------- Users --------------------
 export const users = pgTable('users', {
@@ -21,15 +21,15 @@ export const users = pgTable('users', {
   deletedAt: timestamp('deleted_at'),
 });
 
-// Add defaults to other UUID primary keys too:
+// -------------------- Teams --------------------
 export const teams = pgTable('teams', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   name: varchar('name', { length: 100 }).notNull(),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
-  stripeCustomerId: text('stripe_customer_id').unique(),
-  stripeSubscriptionId: text('stripe_subscription_id').unique(),
-  stripeProductId: text('stripe_product_id'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  stripeCustomerId: varchar('stripe_customer_id', { length: 255 }),
+  stripeSubscriptionId: varchar('stripe_subscription_id', { length: 255 }),
+  stripeProductId: varchar('stripe_product_id', { length: 255 }),
   planName: varchar('plan_name', { length: 50 }),
   subscriptionStatus: varchar('subscription_status', { length: 20 }),
 });
@@ -40,17 +40,7 @@ export const teamMembers = pgTable('team_members', {
   userId: uuid('user_id').notNull().references(() => users.id),
   teamId: uuid('team_id').notNull().references(() => teams.id),
   role: varchar('role', { length: 50 }).notNull(),
-  joinedAt: timestamp('joined_at').notNull().defaultNow(),
-});
-
-// -------------------- Activity Logs --------------------
-export const activityLogs = pgTable('activity_logs', {
-  id: serial('id').primaryKey(),
-  teamId: uuid('team_id').notNull().references(() => teams.id),
-  userId: uuid('user_id').references(() => users.id),
-  action: text('action').notNull(),
-  timestamp: timestamp('timestamp').notNull().defaultNow(),
-  ipAddress: varchar('ip_address', { length: 45 }),
+  joinedAt: timestamp('joined_at').defaultNow().notNull(),
 });
 
 // -------------------- Invitations --------------------
@@ -60,7 +50,7 @@ export const invitations = pgTable('invitations', {
   email: varchar('email', { length: 255 }).notNull(),
   role: varchar('role', { length: 50 }).notNull(),
   invitedBy: uuid('invited_by').notNull().references(() => users.id),
-  invitedAt: timestamp('invited_at').notNull().defaultNow(),
+  invitedAt: timestamp('invited_at').defaultNow().notNull(),
   status: varchar('status', { length: 20 }).notNull().default('pending'),
 });
 
@@ -78,8 +68,8 @@ export const messages = pgTable('messages', {
   chatId: uuid('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
   userId: uuid('user_id').notNull().references(() => users.id),
   content: text('content').notNull(),
-  role: varchar('role', { length: 20 }).notNull(), // 'user' or 'assistant'
-  createdAt: timestamp('created_at').notNull().defaultNow(),
+  role: varchar('role', { length: 20 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 // -------------------- Scenes --------------------
@@ -87,55 +77,96 @@ export const scenes = pgTable('scenes', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   chatId: uuid('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
   sceneNumber: integer('scene_number').notNull(),
-  scenePrompt: text('scene_prompt').notNull(),
-  sceneImagePrompt: text('scene_image_prompt').notNull(),
+  scenePrompt: text('scene_prompt'),
+  sceneImagePrompt: text('scene_image_prompt'),
   characterDescription: text('character_description'),
   imageUrl: text('image_url'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// -------------------- Activity Logs --------------------
+export const activityLogs = pgTable('activity_logs', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  teamId: uuid('team_id').notNull().references(() => teams.id),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  action: varchar('action', { length: 255 }).notNull(),
+  timestamp: timestamp('timestamp').defaultNow().notNull(),
+  ipAddress: varchar('ip_address', { length: 45 }),
 });
 
 // -------------------- Relations --------------------
-export const teamsRelations = relations(teams, ({ many }) => ({
-  teamMembers: many(teamMembers),
-  activityLogs: many(activityLogs),
-  invitations: many(invitations),
-}));
-
 export const usersRelations = relations(users, ({ many }) => ({
   teamMembers: many(teamMembers),
   invitationsSent: many(invitations),
   chats: many(chats),
   messages: many(messages),
+  activityLogs: many(activityLogs),
+}));
+
+export const teamsRelations = relations(teams, ({ many }) => ({
+  teamMembers: many(teamMembers),
+  invitations: many(invitations),
+  activityLogs: many(activityLogs),
+}));
+
+export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
+  user: one(users, {
+    fields: [teamMembers.userId],
+    references: [users.id],
+  }),
+  team: one(teams, {
+    fields: [teamMembers.teamId],
+    references: [teams.id],
+  }),
+}));
+
+export const invitationsRelations = relations(invitations, ({ one }) => ({
+  team: one(teams, {
+    fields: [invitations.teamId],
+    references: [teams.id],
+  }),
+  invitedBy: one(users, {
+    fields: [invitations.invitedBy],
+    references: [users.id],
+  }),
 }));
 
 export const chatsRelations = relations(chats, ({ one, many }) => ({
-  user: one(users, { fields: [chats.userId], references: [users.id] }),
+  user: one(users, {
+    fields: [chats.userId],
+    references: [users.id],
+  }),
   messages: many(messages),
   scenes: many(scenes),
 }));
 
 export const messagesRelations = relations(messages, ({ one }) => ({
-  chat: one(chats, { fields: [messages.chatId], references: [chats.id] }),
-  user: one(users, { fields: [messages.userId], references: [users.id] }),
+  chat: one(chats, {
+    fields: [messages.chatId],
+    references: [chats.id],
+  }),
+  user: one(users, {
+    fields: [messages.userId],
+    references: [users.id],
+  }),
 }));
 
 export const scenesRelations = relations(scenes, ({ one }) => ({
-  chat: one(chats, { fields: [scenes.chatId], references: [chats.id] }),
-}));
-
-export const invitationsRelations = relations(invitations, ({ one }) => ({
-  team: one(teams, { fields: [invitations.teamId], references: [teams.id] }),
-  invitedBy: one(users, { fields: [invitations.invitedBy], references: [users.id] }),
-}));
-
-export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
-  user: one(users, { fields: [teamMembers.userId], references: [users.id] }),
-  team: one(teams, { fields: [teamMembers.teamId], references: [teams.id] }),
+  chat: one(chats, {
+    fields: [scenes.chatId],
+    references: [chats.id],
+  }),
 }));
 
 export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
-  team: one(teams, { fields: [activityLogs.teamId], references: [teams.id] }),
-  user: one(users, { fields: [activityLogs.userId], references: [users.id] }),
+  team: one(teams, {
+    fields: [activityLogs.teamId],
+    references: [teams.id],
+  }),
+  user: one(users, {
+    fields: [activityLogs.userId],
+    references: [users.id],
+  }),
 }));
 
 // -------------------- Types --------------------
@@ -145,8 +176,6 @@ export type Team = typeof teams.$inferSelect;
 export type NewTeam = typeof teams.$inferInsert;
 export type TeamMember = typeof teamMembers.$inferSelect;
 export type NewTeamMember = typeof teamMembers.$inferInsert;
-export type ActivityLog = typeof activityLogs.$inferSelect;
-export type NewActivityLog = typeof activityLogs.$inferInsert;
 export type Invitation = typeof invitations.$inferSelect;
 export type NewInvitation = typeof invitations.$inferInsert;
 export type Chat = typeof chats.$inferSelect;
@@ -155,12 +184,10 @@ export type Message = typeof messages.$inferSelect;
 export type NewMessage = typeof messages.$inferInsert;
 export type Scene = typeof scenes.$inferSelect;
 export type NewScene = typeof scenes.$inferInsert;
-export type TeamDataWithMembers = Team & {
-  teamMembers: (TeamMember & {
-    user: Pick<User, 'id' | 'name' | 'email'>;
-  })[];
-};
+export type ActivityLog = typeof activityLogs.$inferSelect;
+export type NewActivityLog = typeof activityLogs.$inferInsert;
 
+// -------------------- Enums --------------------
 export enum ActivityType {
   SIGN_UP = 'SIGN_UP',
   SIGN_IN = 'SIGN_IN',

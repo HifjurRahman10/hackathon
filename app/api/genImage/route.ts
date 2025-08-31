@@ -47,7 +47,7 @@ export async function POST(req: Request) {
       }
 
       const { data: publicData } = supabase.storage
-        .from("user_uploads")
+        .from("user_upload")
         .getPublicUrl(fileName);
 
       imageUrl = publicData?.publicUrl || null;

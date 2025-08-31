@@ -69,6 +69,7 @@ export default function DashboardPage() {
           chatId: chat.id,
           messages: [...chat.messages, { role: "user", content: messageInput }],
           numScenes,
+
           userId: (await supabase.auth.getUser()).data.user?.id,
         }),
       });

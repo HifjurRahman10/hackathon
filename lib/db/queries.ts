@@ -40,7 +40,7 @@ export async function getTeamByStripeCustomerId(customerId: string) {
 }
 
 export async function updateTeamSubscription(
-  teamId: number,
+  teamId: string, // FIX: was number, ids are uuid strings now
   subscriptionData: {
     stripeSubscriptionId: string | null;
     stripeProductId: string | null;
@@ -59,10 +59,10 @@ export async function updateTeamSubscription(
 
 type UserWithTeam = {
   user: User;
-  teamId: number | null;
+  teamId: string | null; // FIX: uuid
 };
 
-export async function getUserWithTeam(userId: number) {
+export async function getUserWithTeam(userId: string) { // FIX: was number
   const result = await db
     .select({
       userId: users.id,
@@ -120,7 +120,7 @@ export async function getTeamForUser() {
     })
     .from(teams)
     .innerJoin(teamMembers, eq(teams.id, teamMembers.teamId))
-    .where(eq(teamMembers.userId, user.id))
+    .where(eq(teamMembers.userId, user.id)) // user.id is uuid now
     .limit(1);
 
   if (!team) return null;

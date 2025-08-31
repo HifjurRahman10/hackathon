@@ -50,21 +50,18 @@ export async function GET(request: NextRequest) {
       throw new Error('No product ID found for this subscription.');
     }
 
-    // Get userId from metadata instead of client_reference_id
+    // Get userId from metadata (now UUID string) instead of parsing to number
     const userIdMeta = session.metadata?.userId;
     if (!userIdMeta) {
       throw new Error("No user ID found in session metadata.");
     }
-    const userIdNumber = Number(userIdMeta);
-    if (!Number.isInteger(userIdNumber)) {
-      throw new Error("Invalid user ID in metadata.");
-    }
+    const userId = userIdMeta; // already a UUID string
 
-    // Query by numeric primary key (users.id is serial)
+    // Query by UUID primary key (users.id is uuid now)
     const user = await db
       .select()
       .from(users)
-      .where(eq(users.id, userIdNumber))
+      .where(eq(users.id, userId))
       .limit(1);
 
     if (user.length === 0) {

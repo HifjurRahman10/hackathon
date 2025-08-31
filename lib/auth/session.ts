@@ -29,6 +29,7 @@ export async function syncUser(supabaseUser: SupabaseUser): Promise<User> {
   const [newUser] = await db
     .insert(users)
     .values({
+      id: crypto.randomUUID(),            // FIX: supply required id (no default in schema)
       email: supabaseUser.email,
       supabaseId: supabaseUser.id,
       name: supabaseUser.user_metadata?.full_name || '',

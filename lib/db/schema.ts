@@ -11,7 +11,7 @@ import { relations } from 'drizzle-orm';
 
 // -------------------- Users --------------------
 export const users = pgTable('users', {
-  id: serial('id').primaryKey(),
+  id: uuid('id').primaryKey(),
   supabaseId: text('supabase_id').notNull().unique(),
   name: varchar('name', { length: 100 }),
   email: varchar('email', { length: 255 }).notNull().unique(),
@@ -23,7 +23,7 @@ export const users = pgTable('users', {
 
 // -------------------- Teams --------------------
 export const teams = pgTable('teams', {
-  id: serial('id').primaryKey(),
+  id: uuid('id').primaryKey(),
   name: varchar('name', { length: 100 }).notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -36,9 +36,9 @@ export const teams = pgTable('teams', {
 
 // -------------------- Team Members --------------------
 export const teamMembers = pgTable('team_members', {
-  id: serial('id').primaryKey(),
-  userId: integer('user_id').notNull().references(() => users.id),
-  teamId: integer('team_id').notNull().references(() => teams.id),
+  id: uuid('id').primaryKey(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  teamId: uuid('team_id').notNull().references(() => teams.id),
   role: varchar('role', { length: 50 }).notNull(),
   joinedAt: timestamp('joined_at').notNull().defaultNow(),
 });
@@ -46,8 +46,8 @@ export const teamMembers = pgTable('team_members', {
 // -------------------- Activity Logs --------------------
 export const activityLogs = pgTable('activity_logs', {
   id: serial('id').primaryKey(),
-  teamId: integer('team_id').notNull().references(() => teams.id),
-  userId: integer('user_id').references(() => users.id),
+  teamId: uuid('team_id').notNull().references(() => teams.id),
+  userId: uuid('user_id').references(() => users.id),
   action: text('action').notNull(),
   timestamp: timestamp('timestamp').notNull().defaultNow(),
   ipAddress: varchar('ip_address', { length: 45 }),
@@ -55,18 +55,18 @@ export const activityLogs = pgTable('activity_logs', {
 
 // -------------------- Invitations --------------------
 export const invitations = pgTable('invitations', {
-  id: serial('id').primaryKey(),
-  teamId: integer('team_id').notNull().references(() => teams.id),
+  id: uuid('id').primaryKey(),
+  teamId: uuid('team_id').notNull().references(() => teams.id),
   email: varchar('email', { length: 255 }).notNull(),
   role: varchar('role', { length: 50 }).notNull(),
-  invitedBy: integer('invited_by').notNull().references(() => users.id),
+  invitedBy: uuid('invited_by').notNull().references(() => users.id),
   invitedAt: timestamp('invited_at').notNull().defaultNow(),
   status: varchar('status', { length: 20 }).notNull().default('pending'),
 });
 
 // -------------------- Chats --------------------
 export const chats = pgTable('chats', {
-  id: serial('id').primaryKey(),
+  id: uuid('id').primaryKey(),
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   title: text('title').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -74,9 +74,9 @@ export const chats = pgTable('chats', {
 
 // -------------------- Messages --------------------
 export const messages = pgTable('messages', {
-  id: serial('id').primaryKey(),
-  chatId: integer('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
-  userId: integer('user_id').notNull().references(() => users.id),
+  id: uuid('id').primaryKey(),
+  chatId: uuid('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id),
   content: text('content').notNull(),
   role: varchar('role', { length: 20 }).notNull(), // 'user' or 'assistant'
   createdAt: timestamp('created_at').notNull().defaultNow(),
@@ -84,8 +84,8 @@ export const messages = pgTable('messages', {
 
 // -------------------- Scenes --------------------
 export const scenes = pgTable('scenes', {
-  id: serial('id').primaryKey(),
-  chatId: integer('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
+  id: uuid('id').primaryKey(),
+  chatId: uuid('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
   sceneNumber: integer('scene_number').notNull(),
   scenePrompt: text('scene_prompt').notNull(),
   sceneImagePrompt: text('scene_image_prompt').notNull(),

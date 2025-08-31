@@ -148,20 +148,52 @@ export default function DashboardPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { data, error } = await supabase
-      .from("chats")
-      .insert([{ 
-        title: "New Chat", 
-        user_id: user.id  // FIX: change userId to user_id
-      }])
-      .select()
-      .single();
+    // FIX: Sync user to local database first
+    try {
+      // Check if user exists in local db, if not create them
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('supabase_id', user.id)
+        .single();
 
-    if (data && !error) {
-      setChats(prev => [...prev, { ...data, scenes: [], messages: [] }]);
-      setActiveChatId(data.id);
-    } else if (error) {
-      console.error("Insert chat error:", error.message);
+      if (!existingUser) {
+        // Create user in local database
+        const { data: newUser, error: userError } = await supabase
+          .from('users')
+          .insert([{
+            supabase_id: user.id,
+            email: user.email || '',
+            name: user.user_metadata?.full_name || '',
+            role: 'member'
+          }])
+          .select()
+          .single();
+
+        if (userError) {
+          console.error('Failed to create user:', userError);
+          return;
+        }
+      }
+
+      // Now create the chat
+      const { data, error } = await supabase
+        .from("chats")
+        .insert([{ 
+          title: "New Chat", 
+          user_id: user.id
+        }])
+        .select()
+        .single();
+
+      if (data && !error) {
+        setChats(prev => [...prev, { ...data, scenes: [], messages: [] }]);
+        setActiveChatId(data.id);
+      } else if (error) {
+        console.error("Insert chat error:", error.message);
+      }
+    } catch (err) {
+      console.error('Error creating chat:', err);
     }
   };
 

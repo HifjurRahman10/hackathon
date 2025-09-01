@@ -21,7 +21,7 @@ import {
   ActivityType
 } from '@/lib/db/schema'
 import { db } from '@/lib/db/drizzle'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, or } from 'drizzle-orm'
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -100,43 +100,78 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
     email,
     password,
     options: { data: { invitation_id: inviteId } }
-  })
+  });
 
-  if (error) return { error: error.message || 'Failed to create account.', email, password }
-
-  const supabaseId = authData.user?.id
-  if (!supabaseId) return { error: 'Failed to retrieve user ID from Supabase', email, password }
-
-  // Insert into Drizzle users table with same UUID
-  const [user] = await db.insert(users).values({
-    id: crypto.randomUUID(),
-    supabaseId,
-    email,
-    name: '',
-    role: 'member'
-  }).returning() // ✅ fixed for TypeScript
-
-  // Log sign up
-  await logActivity(invitation?.teamId as string, user.id as string, ActivityType.SIGN_UP)
-
-  if (authData.user!.email_confirmed_at) {
-    return { success: 'Please check your email to confirm your account.', email, password }
+  if (error || !authData.user) {
+    return { error: error?.message || 'Failed to create account.', email, password };
   }
 
-  const localUser = await syncUser(authData.user!)
+  const authUser = authData.user;
+
+  // Enforce local user row uses authUser.id for BOTH id and supabase_id
+  await db.transaction(async (tx) => {
+    // Find existing by either column (in case of prior mismatch)
+    const existing = await tx.select()
+      .from(users)
+      .where(
+        or(
+          eq(users.id, authUser.id as string),
+          // @ts-ignore (if supabaseId optional in types)
+          eq((users as any).supabaseId, authUser.id as string)
+        )
+      )
+      .limit(1);
+
+    if (!existing.length) {
+      // Insert fresh
+      await tx.insert(users).values({
+        id: authUser.id,
+        // Only include supabaseId if column exists
+        ...( (users as any).supabaseId ? { supabaseId: authUser.id } : {}),
+        email,
+        name: authUser.user_metadata?.full_name || email.split('@')[0],
+        role: 'member'
+      } as any);
+    } else {
+      const row = existing[0] as any;
+      // If mismatch, normalize both to authUser.id
+      if (row.id !== authUser.id || row.supabaseId !== authUser.id) {
+        await tx.update(users)
+          .set({
+            id: authUser.id,
+            ...( (users as any).supabaseId ? { supabaseId: authUser.id } : {}),
+            email, // keep latest email
+          } as any)
+          .where(eq(users.id, row.id));
+      }
+    }
+  });
+
+  // Correct logic: if NOT confirmed yet, tell user to check email
+  if (!authUser.email_confirmed_at) {
+    return { success: 'Please check your email to confirm your account.', email, password };
+  }
+
+  // Sync local cached session/user record
+  const localUser = await syncUser(authUser);
+  if (!localUser) {
+    return { error: 'Failed to sync user profile.', email, password };
+  }
 
   if (invitation) {
     await db.insert(teamMembers).values({
       id: crypto.randomUUID(),
-      userId: localUser.id as string,
-      teamId: invitation.teamId as string,
+      userId: localUser.id,
+      teamId: invitation.teamId,
       role: invitation.role
-    })
-
-    await db.update(invitations).set({ status: 'accepted' }).where(eq(invitations.id, invitation.id))
-    await logActivity(invitation.teamId as string, localUser.id as string, ActivityType.ACCEPT_INVITATION)
+    });
+    await db.update(invitations)
+      .set({ status: 'accepted' })
+      .where(eq(invitations.id, invitation.id));
+    await logActivity(invitation.teamId, localUser.id, ActivityType.ACCEPT_INVITATION);
   }
 
+  await logActivity(invitation?.teamId, localUser.id, ActivityType.SIGN_UP);
   redirect('/dashboard')
 })
 

@@ -4,9 +4,22 @@ import { z } from 'zod'
 import { createServerSupabase } from '@/lib/auth/supabase'
 import { syncUser, getUser } from '@/lib/auth/session'
 import { redirect } from 'next/navigation'
-import { getUserWithTeam } from '@/lib/db/queries'
-import { validatedAction, validatedActionWithUser } from '@/lib/auth/middleware'
-import { teams, teamMembers, activityLogs, invitations, users, type NewActivityLog, ActivityType } from '@/lib/db/schema'
+import {
+  getUserWithTeam
+} from '@/lib/db/queries'
+import {
+  validatedAction,
+  validatedActionWithUser
+} from '@/lib/auth/middleware'
+import {
+  teams,
+  teamMembers,
+  activityLogs,
+  invitations,
+  users,
+  type NewActivityLog,
+  ActivityType
+} from '@/lib/db/schema'
 import { db } from '@/lib/db/drizzle'
 import { and, eq } from 'drizzle-orm'
 import { createClient } from '@supabase/supabase-js'
@@ -22,13 +35,14 @@ async function logActivity(
   type: ActivityType,
   ipAddress?: string
 ) {
-  if (!teamId || !userId) return
-  await supabase.from('activity_logs').insert({
+  if (!teamId) return
+  const newActivity: NewActivityLog = {
     teamId,
     userId,
     action: type,
     ipAddress: ipAddress || ''
-  } as any)
+  }
+  await supabase.from('activity_logs').insert(newActivity as any)
 }
 
 // -------------------- SIGN IN --------------------
@@ -47,7 +61,7 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
   if (authData.user) {
     const user = await syncUser(authData.user)
     const userWithTeam = await getUserWithTeam(user.id)
-    await logActivity(userWithTeam?.teamId, user.id, ActivityType.SIGN_IN)
+    await logActivity(userWithTeam?.teamId as string, user.id as string, ActivityType.SIGN_IN)
 
     const redirectTo = formData.get('redirect') as string | null
     if (redirectTo === 'checkout') {
@@ -74,42 +88,54 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
 
   let invitation: any = null
   if (inviteId) {
-    const found = await db.select().from(invitations)
-      .where(and(eq(invitations.id, inviteId), eq(invitations.email, email), eq(invitations.status, 'pending')))
-      .limit(1)
+    const found = await db.select().from(invitations).where(
+      and(eq(invitations.id, inviteId), eq(invitations.email, email), eq(invitations.status, 'pending'))
+    ).limit(1)
     invitation = found[0]
     if (!invitation) return { error: 'Invalid or expired invitation.', email, password }
   }
 
-  // Create user in Supabase
+  // Create user in Supabase auth
   const { data: authData, error } = await supa.auth.signUp({
     email,
     password,
     options: { data: { invitation_id: inviteId } }
   })
+
   if (error) return { error: error.message || 'Failed to create account.', email, password }
 
   const supabaseId = authData.user?.id
   if (!supabaseId) return { error: 'Failed to retrieve user ID from Supabase', email, password }
 
-  // ✅ Sync user to local DB (will insert if missing)
-  const user = await syncUser(authData.user!)
+  // Insert into Drizzle users table with same UUID
+  const [user] = await db.insert(users).values({
+    id: crypto.randomUUID(),
+    supabaseId,
+    email,
+    name: '',
+    role: 'member'
+  }).returning() // ✅ fixed for TypeScript
 
-  // Handle invitations
+  // Log sign up
+  await logActivity(invitation?.teamId as string, user.id as string, ActivityType.SIGN_UP)
+
+  if (authData.user!.email_confirmed_at) {
+    return { success: 'Please check your email to confirm your account.', email, password }
+  }
+
+  const localUser = await syncUser(authData.user!)
+
   if (invitation) {
     await db.insert(teamMembers).values({
       id: crypto.randomUUID(),
-      userId: user.id,
-      teamId: invitation.teamId,
+      userId: localUser.id as string,
+      teamId: invitation.teamId as string,
       role: invitation.role
-    } as any)
+    })
 
     await db.update(invitations).set({ status: 'accepted' }).where(eq(invitations.id, invitation.id))
-    await logActivity(invitation.teamId, user.id, ActivityType.ACCEPT_INVITATION)
+    await logActivity(invitation.teamId as string, localUser.id as string, ActivityType.ACCEPT_INVITATION)
   }
-
-  const userTeamId = invitation?.teamId || (await getUserWithTeam(user.id))?.teamId
-  await logActivity(userTeamId, user.id, ActivityType.SIGN_IN)
 
   redirect('/dashboard')
 })
@@ -119,7 +145,7 @@ export async function signOut() {
   const user = await getUser()
   if (user) {
     const userWithTeam = await getUserWithTeam(user.id)
-    await logActivity(userWithTeam?.teamId, user.id, ActivityType.SIGN_OUT)
+    await logActivity(userWithTeam?.teamId as string, user.id as string, ActivityType.SIGN_OUT)
   }
   const supa = await createServerSupabase()
   await supa.auth.signOut()
@@ -146,7 +172,7 @@ export const updatePassword = validatedActionWithUser(
     if (error) return { error: error.message }
 
     const userWithTeam = await getUserWithTeam(user.id)
-    await logActivity(userWithTeam?.teamId, user.id, ActivityType.UPDATE_PASSWORD)
+    await logActivity(userWithTeam?.teamId as string, user.id as string, ActivityType.UPDATE_PASSWORD)
 
     return { success: 'Password updated successfully.' }
   }
@@ -165,7 +191,7 @@ export const deleteAccount = validatedActionWithUser(
     if (verifyError) return { error: 'Incorrect password. Account deletion failed.' }
 
     const userWithTeam = await getUserWithTeam(user.id)
-    await logActivity(userWithTeam?.teamId, user.id, ActivityType.DELETE_ACCOUNT)
+    await logActivity(userWithTeam?.teamId as string, user.id as string, ActivityType.DELETE_ACCOUNT)
 
     if (userWithTeam?.teamId) {
       await db.delete(teamMembers).where(and(eq(teamMembers.userId, user.id), eq(teamMembers.teamId, userWithTeam.teamId)))
@@ -200,7 +226,7 @@ export const updateAccount = validatedActionWithUser(
 
     await Promise.all([
       db.update(users).set({ name, email }).where(eq(users.id, user.id)),
-      logActivity(userWithTeam?.teamId, user.id, ActivityType.UPDATE_ACCOUNT)
+      logActivity(userWithTeam?.teamId as string, user.id as string, ActivityType.UPDATE_ACCOUNT)
     ])
 
     return { success: 'Account updated successfully.' }
@@ -215,7 +241,7 @@ export const removeTeamMember = validatedActionWithUser(removeTeamMemberSchema, 
   if (!userWithTeam?.teamId) return { error: 'User is not part of a team' }
 
   await db.delete(teamMembers).where(and(eq(teamMembers.id, memberId), eq(teamMembers.teamId, userWithTeam.teamId)))
-  await logActivity(userWithTeam.teamId, user.id, ActivityType.REMOVE_TEAM_MEMBER)
+  await logActivity(userWithTeam.teamId as string, user.id as string, ActivityType.REMOVE_TEAM_MEMBER)
 
   return { success: 'Team member removed successfully' }
 })
@@ -236,13 +262,13 @@ export const inviteTeamMember = validatedActionWithUser(inviteTeamMemberSchema, 
 
   await db.insert(invitations).values({
     id: crypto.randomUUID(),
-    teamId: userWithTeam.teamId,
+    teamId: userWithTeam.teamId as string,
     email,
     role,
-    invitedBy: user.id,
+    invitedBy: user.id as string,
     status: 'pending'
-  } as any)
+  })
 
-  await logActivity(userWithTeam.teamId, user.id, ActivityType.INVITE_TEAM_MEMBER)
+  await logActivity(userWithTeam.teamId as string, user.id as string, ActivityType.INVITE_TEAM_MEMBER)
   return { success: 'Invitation sent successfully' }
 })

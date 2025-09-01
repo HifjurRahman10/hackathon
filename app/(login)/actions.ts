@@ -2,25 +2,11 @@
 
 import { z } from 'zod'
 import { createServerSupabase } from '@/lib/auth/supabase'
-import { syncUser } from '@/lib/auth/session'
+import { syncUser, getUser } from '@/lib/auth/session'
 import { redirect } from 'next/navigation'
-import {
-  getUserWithTeam,
-  getUser
-} from '@/lib/db/queries'
-import {
-  validatedAction,
-  validatedActionWithUser
-} from '@/lib/auth/middleware'
-import {
-  teams,
-  teamMembers,
-  activityLogs,
-  invitations,
-  users,
-  type NewActivityLog,
-  ActivityType
-} from '@/lib/db/schema'
+import { getUserWithTeam } from '@/lib/db/queries'
+import { validatedAction, validatedActionWithUser } from '@/lib/auth/middleware'
+import { teams, teamMembers, activityLogs, invitations, users, type NewActivityLog, ActivityType } from '@/lib/db/schema'
 import { db } from '@/lib/db/drizzle'
 import { and, eq } from 'drizzle-orm'
 import { createClient } from '@supabase/supabase-js'
@@ -36,14 +22,13 @@ async function logActivity(
   type: ActivityType,
   ipAddress?: string
 ) {
-  if (!teamId) return
-  const newActivity: NewActivityLog = {
+  if (!teamId || !userId) return
+  await supabase.from('activity_logs').insert({
     teamId,
     userId,
     action: type,
     ipAddress: ipAddress || ''
-  }
-  await supabase.from('activity_logs').insert(newActivity as any)
+  } as any)
 }
 
 // -------------------- SIGN IN --------------------
@@ -89,40 +74,28 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
 
   let invitation: any = null
   if (inviteId) {
-    const found = await db.select().from(invitations).where(
-      and(eq(invitations.id, inviteId), eq(invitations.email, email), eq(invitations.status, 'pending'))
-    ).limit(1)
+    const found = await db.select().from(invitations)
+      .where(and(eq(invitations.id, inviteId), eq(invitations.email, email), eq(invitations.status, 'pending')))
+      .limit(1)
     invitation = found[0]
     if (!invitation) return { error: 'Invalid or expired invitation.', email, password }
   }
 
-  // Create user in Supabase auth
+  // Create user in Supabase
   const { data: authData, error } = await supa.auth.signUp({
     email,
     password,
     options: { data: { invitation_id: inviteId } }
   })
-
   if (error) return { error: error.message || 'Failed to create account.', email, password }
 
   const supabaseId = authData.user?.id
   if (!supabaseId) return { error: 'Failed to retrieve user ID from Supabase', email, password }
 
-  // Insert into Drizzle users table with same UUID
-  await db.insert(users).values({
-    id: supabaseId,
-    supabaseId,
-    email,
-    name: '',
-    role: 'member'
-  } as any)
-
-  if (authData.user!.email_confirmed_at) {
-    return { success: 'Please check your email to confirm your account.', email, password }
-  }
-
+  // ✅ Sync user to local DB (will insert if missing)
   const user = await syncUser(authData.user!)
 
+  // Handle invitations
   if (invitation) {
     await db.insert(teamMembers).values({
       id: crypto.randomUUID(),
@@ -134,6 +107,9 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
     await db.update(invitations).set({ status: 'accepted' }).where(eq(invitations.id, invitation.id))
     await logActivity(invitation.teamId, user.id, ActivityType.ACCEPT_INVITATION)
   }
+
+  const userTeamId = invitation?.teamId || (await getUserWithTeam(user.id))?.teamId
+  await logActivity(userTeamId, user.id, ActivityType.SIGN_IN)
 
   redirect('/dashboard')
 })

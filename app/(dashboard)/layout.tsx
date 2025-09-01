@@ -12,22 +12,17 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useRouter, usePathname } from 'next/navigation';
-import { getBrowserSupabase } from '@/lib/auth/supabase-browser'
+import { getBrowserSupabase } from '@/lib/auth/supabase-browser';
 import type { User, AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 function getInitials(user: User | null): string {
   if (!user) return '?';
-  
   const name = user.user_metadata?.full_name || user.user_metadata?.name || user.email || '';
   if (!name) return '?';
-  
-  // Remove email domain if it's an email
   const cleanName = name.replace(/@.*/, '');
   const parts = cleanName.split(/[\s._-]+/).filter(Boolean);
-  
   if (parts.length === 0) return cleanName.charAt(0).toUpperCase();
   if (parts.length === 1) return parts[0][0].toUpperCase();
-  
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
@@ -38,26 +33,51 @@ function UserMenu() {
   const router = useRouter();
   const supabase = getBrowserSupabase();
 
+  // Check DB for the user
+  async function fetchDbUser(supabaseUser: User) {
+    try {
+      const res = await fetch(`/api/getUser?supabaseId=${supabaseUser.id}`);
+      const userFromDb = await res.json();
+      if (!userFromDb) {
+        // Remove cookie/session if user doesn't exist in DB
+        await supabase.auth.signOut();
+        setUser(null);
+      } else {
+        setUser(supabaseUser);
+      }
+    } catch (err) {
+      console.error('Error fetching DB user:', err);
+      await supabase.auth.signOut();
+      setUser(null);
+    }
+  }
+
   useEffect(() => {
-    // Get initial session
-    async function getInitialSession() {
+    async function init() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        setUser(session?.user || null);
-      } catch (error) {
-        console.error('Error getting session:', error);
+        if (!session?.user) {
+          setUser(null);
+        } else {
+          await fetchDbUser(session.user);
+        }
+      } catch (err) {
+        console.error('Error getting session:', err);
         setUser(null);
       } finally {
         setLoading(false);
       }
     }
 
-    getInitialSession();
+    init();
 
-    // Listen for auth changes with proper types
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event: AuthChangeEvent, session: Session | null) => {
-        setUser(session?.user || null);
+      async (_event: AuthChangeEvent, session: Session | null) => {
+        if (!session?.user) {
+          setUser(null);
+        } else {
+          await fetchDbUser(session.user);
+        }
         setLoading(false);
       }
     );
@@ -70,6 +90,7 @@ function UserMenu() {
   async function handleSignOut() {
     try {
       await supabase.auth.signOut();
+      setUser(null);
       router.push('/');
       router.refresh();
     } catch (error) {
@@ -108,9 +129,9 @@ function UserMenu() {
       <DropdownMenuTrigger asChild>
         <button className="focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 rounded-full">
           <Avatar className="cursor-pointer size-9">
-            <AvatarImage 
-              src={user.user_metadata?.avatar_url} 
-              alt={user.user_metadata?.full_name || user.email || ''} 
+            <AvatarImage
+              src={user.user_metadata?.avatar_url}
+              alt={user.user_metadata?.full_name || user.email || ''}
             />
             <AvatarFallback className="bg-orange-500 text-white font-medium">
               {getInitials(user)}
@@ -125,7 +146,7 @@ function UserMenu() {
             <span>Dashboard</span>
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem 
+        <DropdownMenuItem
           onClick={handleSignOut}
           className="cursor-pointer text-red-600 focus:text-red-700"
         >
@@ -157,19 +178,12 @@ function Header() {
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  
-  // Don't show navbar on dashboard pages
   const isDashboardPage = pathname?.startsWith('/dashboard');
-  
+
   if (isDashboardPage) {
-    return (
-      <section className="h-screen w-full">
-        {children}
-      </section>
-    );
+    return <section className="h-screen w-full">{children}</section>;
   }
-  
-  // Show navbar on other pages (like landing page)
+
   return (
     <section className="flex flex-col min-h-screen">
       <Header />

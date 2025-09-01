@@ -117,11 +117,11 @@ export const signUp = validatedAction(signUpSchema, async (data, formData) => {
     role: 'member'
   } as any)
 
-  if (!authData.user.email_confirmed_at) {
+  if (authData.user!.email_confirmed_at) {
     return { success: 'Please check your email to confirm your account.', email, password }
   }
 
-  const user = await syncUser(authData.user)
+  const user = await syncUser(authData.user!)
 
   if (invitation) {
     await db.insert(teamMembers).values({

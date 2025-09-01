@@ -1,70 +1,91 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const SUPABASE_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY; // prefer service key on server
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  SUPABASE_URL,
+  SUPABASE_SERVICE || SUPABASE_ANON,
+  { auth: { persistSession: false, autoRefreshToken: false } }
 );
 
-export async function POST(req: Request) {
+async function ensureBucket(name: string) {
+  const { data: buckets } = await supabase.storage.listBuckets();
+  if (!buckets?.some(b => b.name === name)) {
+    await supabase.storage.createBucket(name, { public: true });
+  }
+}
+
+export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { prompt, sceneNumber, chatId, userId } = body;
+    const { prompt, chatId, sceneNumber, userId, force } = await req.json();
 
-    if (!prompt || typeof prompt !== "string") {
-      return NextResponse.json({ error: "`prompt` is required" }, { status: 400 });
-    }
-    if (!chatId || !sceneNumber || !userId) {
-      return NextResponse.json({ error: "`userId`, `chatId` and `sceneNumber` are required" }, { status: 400 });
+    if (!prompt || !chatId || sceneNumber === undefined || sceneNumber === null || !userId) {
+      return NextResponse.json(
+        { error: "`prompt`, `chatId`, `sceneNumber`, and `userId` are required" },
+        { status: 400 }
+      );
     }
 
-    // --- Generate image ---
-    const imageResponse = await openai.images.generate({
+    const bucket = "images";
+    await ensureBucket(bucket);
+
+    const fileName = `${sceneNumber}_image.png`;
+    const filePath = `${userId}/${chatId}/${fileName}`;
+
+    if (!force) {
+      const { data: existing, error: listErr } = await supabase
+        .storage.from(bucket)
+        .list(`${userId}/${chatId}`);
+
+      if (!listErr && existing?.some(f => f.name === fileName)) {
+        const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+        return NextResponse.json({ imageUrl: urlData.publicUrl });
+      }
+    }
+
+    const aiResp = await openai.images.generate({
       model: "gpt-image-1",
       prompt,
       size: "1024x1024",
-      quality: "low",
       n: 1,
+      response_format: "b64_json"
     });
 
-    const imgData = imageResponse.data?.[0];
-    let imageUrl: string | null = imgData?.url || null;
-
-    // --- If base64 returned, upload to Supabase storage ---
-    if (imgData?.b64_json) {
-      const buffer = Buffer.from(imgData.b64_json, "base64");
-
-      // structured path: userId/chatId/{sceneNumber}_image.png
-      const fileName = `${userId}/${chatId}/${sceneNumber}_image.png`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("user_upload")
-        .upload(fileName, buffer, {
-          contentType: "image/png",
-          upsert: true, // overwrite if same scene regenerated
-        });
-
-      if (uploadError) {
-        console.error("Supabase upload error:", uploadError);
-        return NextResponse.json({ error: uploadError.message }, { status: 500 });
-      }
-
-      const { data: publicData } = supabase.storage
-        .from("user_upload")
-        .getPublicUrl(fileName);
-
-      imageUrl = publicData?.publicUrl || null;
+    const b64 = aiResp.data?.[0]?.b64_json;
+    if (!b64) {
+      return NextResponse.json(
+        { error: "No image data returned from OpenAI" },
+        { status: 502 }
+      );
     }
 
-    if (!imageUrl) {
-      return NextResponse.json({ error: "Failed to generate image URL" }, { status: 502 });
+    const buffer = Buffer.from(b64, "base64");
+
+    const { error: uploadError } = await supabase
+      .storage
+      .from(bucket)
+      .upload(filePath, buffer, {
+        upsert: true,
+        contentType: "image/png"
+      });
+
+    if (uploadError) {
+      console.error("Upload error:", uploadError);
+      return NextResponse.json({ error: "Failed to upload image" }, { status: 500 });
     }
 
-    return NextResponse.json({ imageUrl });
+    const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+    return NextResponse.json({ imageUrl: publicData.publicUrl });
   } catch (err: any) {
     console.error("genImage error:", err);
-    return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message || "Unexpected error" },
+      { status: 500 }
+    );
   }
 }

@@ -1,334 +1,176 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { sb } from "@/lib/auth/supabase-browser";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Trash2 } from "lucide-react";
 
 const supabase = sb();
 
-type Scene = {
-  sceneNumber: number;
-  scenePrompt: string;
-  sceneImagePrompt: string;
-  characterDescription?: string;
-  imageUrl?: string | null;
-  pending?: boolean;
-  error?: boolean;
-};
-
-type Chat = {
-  id: string;
-  title: string;
-  created_at: string;
-  messages: { role: string; content: string }[];
-  scenes: Scene[];
-};
-
 export default function DashboardPage() {
-  const [chats, setChats] = useState<Chat[]>([]);
+  const [chats, setChats] = useState<any[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const [inputs, setInputs] = useState<Record<string, string>>({});
-  const [numScenes, setNumScenes] = useState(3);
+  const [scenes, setScenes] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chats, activeChatId]);
+  const [input, setInput] = useState("");
 
   // Fetch chats on mount
   useEffect(() => {
-    const fetchChats = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      // Get local user id
-      const { data: localUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("supabase_id", user.id)
-        .single();
-
-      if (!localUser) return;
-
-      const { data: chatData } = await supabase
-        .from("chats")
-        .select("*, messages(*), scenes(*)")
-        .eq("user_id", localUser.id)
-        .order("created_at", { ascending: false });
-
-      if (chatData) {
-        const savedInputs: Record<string, string> = {};
-        chatData.forEach((c: any) => (savedInputs[c.id] = ""));
-        setInputs(savedInputs);
-        setChats(chatData);
-        if (chatData.length) setActiveChatId(chatData[0].id);
-      }
-    };
-
     fetchChats();
   }, []);
 
-  const activeChat = chats.find((c) => c.id === activeChatId);
+  // Fetch scenes when activeChatId changes
+  useEffect(() => {
+    if (activeChatId) fetchScenes(activeChatId);
+  }, [activeChatId]);
 
-  const handleInputChange = (value: string) => {
-    if (!activeChatId) return;
-    setInputs((prev) => ({ ...prev, [activeChatId]: value }));
-  };
+  const fetchChats = async () => {
+    const res = await fetch("/api/chat", { method: "GET" });
+    const data = await res.json();
 
-  const createNewChat = async () => {
-    try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) return;
-
-      let { data: localUser } = await supabase
-        .from("users")
-        .select("id")
-        .eq("supabase_id", authUser.id)
-        .single();
-
-      if (!localUser) {
-        const { data: newUser } = await supabase
-          .from("users")
-          .insert({
-            supabase_id: authUser.id,
-            email: authUser.email || "",
-            name: authUser.user_metadata?.full_name || authUser.email?.split("@")[0] || "",
-            role: "member",
-          })
-          .select("id")
-          .single();
-        localUser = newUser!;
-      }
-
-      const { data: newChat } = await supabase
-        .from("chats")
-        .insert({
-          title: "New Chat",
-          user_id: localUser.id,
-        })
-        .select()
-        .single();
-
-      if (newChat) {
-        setChats((prev) => [{ ...newChat, messages: [], scenes: [] }, ...prev]);
-        setActiveChatId(newChat.id);
-        setInputs((prev) => ({ ...prev, [newChat.id]: "" }));
-      }
-    } catch (err) {
-      console.error(err);
+    if (!data || data.length === 0) {
+      // Auto-create chat if none exist
+      const newChat = await fetch("/api/chat", { method: "POST" });
+      const created = await newChat.json();
+      setChats([created]);
+      setActiveChatId(created.id);
+    } else {
+      setChats(data);
+      setActiveChatId(data[0].id);
     }
   };
 
-  // Send user prompt
-  const sendMessage = async () => {
-    if (!activeChatId) return;
-    const messageInput = inputs[activeChatId]?.trim();
-    if (!messageInput) return;
+  const fetchScenes = async (chatId: string) => {
+    setLoading(true);
+    const res = await fetch(`/api/scene?chatId=${chatId}`, { method: "GET" });
+    const data = await res.json();
+    setScenes(data || []);
+    setLoading(false);
+  };
+
+  const handleSend = async () => {
+    if (!input.trim() || !activeChatId) return;
 
     setLoading(true);
 
-    try {
-      const chat = chats.find((c) => c.id === activeChatId);
-      if (!chat) return;
+    const res = await fetch("/api/scene", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chatId: activeChatId, prompt: input }),
+    });
 
-      const { data: userMsg, error: msgError } = await supabase
-        .from("messages")
-        .insert({
-          chat_id: chat.id,
-          user_id: (await supabase.auth.getUser()).data.user?.id,
-          role: "user",
-          content: messageInput,
-        })
-        .select()
-        .single();
+    const data = await res.json();
 
-      if (msgError) console.error("Failed to save user message:", msgError);
+    if (data) {
+      setScenes((prev) => [...prev, data]); // append new scene
+    }
 
-      // Call Chat API for scenes
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chatId: chat.id,
-          messages: [...chat.messages, { role: "user", content: messageInput }],
-          numScenes,
-          userId: (await supabase.auth.getUser()).data.user?.id,
-        }),
-      });
+    setInput(""); // clear input after sending
+    setLoading(false);
+  };
 
-      if (!res.ok) throw new Error("Failed to send message");
-
-      const data = await res.json();
-      const updatedScenes = [...chat.scenes, ...data.scenes];
-
-      // Update state
-      setChats((prev) =>
-        prev.map((c) =>
-          c.id === chat.id
-            ? { ...c, scenes: updatedScenes, messages: [...c.messages, { role: "user", content: messageInput }] }
-            : c
-        )
-      );
-
-      setInputs((prev) => ({ ...prev, [chat.id]: "" }));
-
-      // Generate images in parallel
-      await Promise.all(updatedScenes.map((scene: any) => generateImage(scene)));
-
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
     }
   };
 
-  const generateImage = async (scene: Scene, forceRegenerate = false) => {
-    if (!activeChatId) return;
-
-    if (scene.imageUrl && !forceRegenerate) {
-      try {
-        const res = await fetch(scene.imageUrl, { method: "HEAD" });
-        if (res.ok) return;
-      } catch {}
+  const handleDeleteChat = async (chatId: string) => {
+    await fetch(`/api/chat?chatId=${chatId}`, { method: "DELETE" });
+    setChats((prev) => prev.filter((c) => c.id !== chatId));
+    if (activeChatId === chatId) {
+      if (chats.length > 1) {
+        setActiveChatId(chats.find((c) => c.id !== chatId)?.id || null);
+      } else {
+        setActiveChatId(null);
+        // Auto-create a new chat after deletion if none left
+        const newChat = await fetch("/api/chat", { method: "POST" });
+        const created = await newChat.json();
+        setChats([created]);
+        setActiveChatId(created.id);
+      }
     }
-
-    try {
-      const res = await fetch("/api/genImage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: scene.sceneImagePrompt,
-          chatId: activeChatId,
-          sceneNumber: scene.sceneNumber,
-          force: forceRegenerate,
-        }),
-      });
-
-      if (!res.ok) throw new Error("Image generation failed");
-
-      const { imageUrl } = await res.json();
-
-      setChats((prev) =>
-        prev.map((c) =>
-          c.id === activeChatId
-            ? {
-                ...c,
-                scenes: c.scenes.map((s) =>
-                  s.sceneNumber === scene.sceneNumber ? { ...s, imageUrl } : s
-                ),
-              }
-            : c
-        )
-      );
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Scene count input handler
-  const handleSceneCountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let val = e.target.value.trim();
-    if (/^0+/.test(val)) val = String(Number(val)); // strip leading zeros
-    const num = Number(val);
-    if (!isNaN(num) && num >= 1 && num <= 99) setNumScenes(num);
   };
 
   return (
     <div className="flex h-screen">
       {/* Sidebar */}
-      <div className="w-80 bg-white border-r flex flex-col">
-        <div className="p-4 border-b">
-          <Button onClick={createNewChat} className="w-full">
-            New Chat
-          </Button>
-        </div>
-        <ScrollArea className="flex-1">
+      <div className="w-64 border-r bg-gray-50 flex flex-col">
+        <div className="p-4 font-semibold text-lg">Your Chats</div>
+        <div className="flex-1 overflow-y-auto">
           {chats.map((chat) => (
             <div
               key={chat.id}
-              onClick={() => setActiveChatId(chat.id)}
-              className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${
-                activeChatId === chat.id ? "bg-blue-50 border-blue-200" : ""
+              className={`group flex items-center justify-between px-4 py-2 cursor-pointer hover:bg-gray-100 ${
+                activeChatId === chat.id ? "bg-gray-200 font-medium" : ""
               }`}
+              onClick={() => setActiveChatId(chat.id)}
             >
-              <h3 className="truncate font-medium">{chat.title}</h3>
-              <p className="text-sm text-gray-500">{new Date(chat.created_at).toLocaleDateString()}</p>
+              <span className="truncate">{chat.title || "Untitled Chat"}</span>
+              <Trash2
+                className="w-4 h-4 text-red-500 opacity-0 group-hover:opacity-100 transition"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteChat(chat.id);
+                }}
+              />
             </div>
           ))}
-        </ScrollArea>
+        </div>
+        <div className="p-4">
+          <Button
+            className="w-full"
+            onClick={async () => {
+              const res = await fetch("/api/chat", { method: "POST" });
+              const newChat = await res.json();
+              setChats((prev) => [newChat, ...prev]);
+              setActiveChatId(newChat.id);
+            }}
+          >
+            + New Chat
+          </Button>
+        </div>
       </div>
 
-      {/* Main */}
+      {/* Main area */}
       <div className="flex-1 flex flex-col">
-        <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="font-bold">{activeChat?.title || "Select a chat"}</h2>
-          <Input
-            type="number"
-            min={1}
-            max={99}
-            value={numScenes}
-            onChange={handleSceneCountChange}
-            className="w-20"
-          />
-        </div>
-
-        <ScrollArea className="flex-1 p-4 space-y-4 overflow-y-auto">
-          {activeChat?.messages?.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`px-4 py-2 rounded-lg max-w-xs ${
-                  msg.role === "user" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-900"
-                }`}
-              >
-                {msg.content}
-              </div>
-            </div>
-          ))}
-
-          {activeChat?.scenes?.map((scene) => (
-            <Card key={scene.sceneNumber}>
-              <CardContent>
-                <p className="font-semibold mb-2">Scene {scene.sceneNumber}</p>
-                <p className="mb-2">{scene.scenePrompt}</p>
-                {scene.imageUrl ? (
+        {/* Scenes */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {loading && <div>Loading...</div>}
+          {!loading && scenes.length === 0 && (
+            <div className="text-gray-500">No scenes yet. Start typing below.</div>
+          )}
+          {scenes.map((scene, idx) => (
+            <Card key={scene.id || idx} className="shadow-sm">
+              <CardContent className="p-4">
+                <div className="font-medium text-gray-700 mb-2">
+                  Scene {idx + 1}
+                </div>
+                <p className="text-gray-900">{scene.scene_prompt}</p>
+                {scene.image_url && (
                   <img
-                    src={scene.imageUrl}
-                    alt={`Scene ${scene.sceneNumber}`}
-                    className="rounded-lg border"
+                    src={scene.image_url}
+                    alt={`Scene ${idx + 1}`}
+                    className="mt-3 rounded-lg border"
                   />
-                ) : (
-                  <p className="italic text-gray-400">Image generating...</p>
                 )}
               </CardContent>
             </Card>
           ))}
+        </div>
 
-          <div ref={messagesEndRef} />
-        </ScrollArea>
-
-        {/* Input area */}
-        <div className="flex p-4 border-t gap-2">
-          <Input
-            placeholder="Write your story..."
-            value={activeChatId ? inputs[activeChatId] : ""}
-            onChange={(e) => handleInputChange(e.target.value)}
+        {/* Input */}
+        <div className="border-t p-4">
+          <input
+            className="w-full rounded-xl border px-4 py-3 focus:outline-none focus:ring focus:ring-blue-400"
+            placeholder="Type your scene prompt..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
             disabled={loading}
           />
-          <Button
-            onClick={sendMessage}
-            disabled={!activeChatId || !inputs[activeChatId]?.trim() || loading}
-          >
-            Send
-          </Button>
         </div>
       </div>
     </div>

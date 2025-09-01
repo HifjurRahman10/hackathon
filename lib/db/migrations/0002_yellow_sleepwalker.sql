@@ -9,3 +9,17 @@ ALTER TABLE "scenes" ALTER COLUMN "scene_image_prompt" DROP NOT NULL;--> stateme
 ALTER TABLE "teams" ALTER COLUMN "stripe_customer_id" SET DATA TYPE varchar(255);--> statement-breakpoint
 ALTER TABLE "teams" ALTER COLUMN "stripe_subscription_id" SET DATA TYPE varchar(255);--> statement-breakpoint
 ALTER TABLE "teams" ALTER COLUMN "stripe_product_id" SET DATA TYPE varchar(255);
+
+-- DROP the bad/self FK
+ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_id_fkey;
+
+-- OPTION A (simplest): stop here (no FK). Uncomment ONLY if you want no FK.
+-- -- Done.
+
+-- OPTION B (recommended): add correct FK to auth.users(id)
+-- NOTE: auth.users lives in the auth schema managed by Supabase.
+ALTER TABLE public.users
+  ADD CONSTRAINT users_id_fkey
+  FOREIGN KEY (id)
+  REFERENCES auth.users (id)
+  ON DELETE CASCADE;

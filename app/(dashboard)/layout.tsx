@@ -33,36 +33,32 @@ function UserMenu() {
   const router = useRouter();
   const supabase = getBrowserSupabase();
 
-  // Check DB for the user
-  async function fetchDbUser(supabaseUser: User) {
-    try {
-      const res = await fetch(`/api/getUser?supabaseId=${supabaseUser.id}`);
-      const userFromDb = await res.json();
-      if (!userFromDb) {
-        // Remove cookie/session if user doesn't exist in DB
-        await supabase.auth.signOut();
-        setUser(null);
-      } else {
-        setUser(supabaseUser);
-      }
-    } catch (err) {
-      console.error('Error fetching DB user:', err);
-      await supabase.auth.signOut();
-      setUser(null);
-    }
-  }
-
   useEffect(() => {
     async function init() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) {
-          setUser(null);
+        const currentUser = session?.user || null;
+
+        if (currentUser) {
+          // Check if user exists in Supabase "users" table
+          const { data: dbUser, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', currentUser.id)
+            .single();
+
+          if (!dbUser || error) {
+            // User not in DB -> remove session
+            await supabase.auth.signOut();
+            setUser(null);
+          } else {
+            setUser(currentUser);
+          }
         } else {
-          await fetchDbUser(session.user);
+          setUser(null);
         }
       } catch (err) {
-        console.error('Error getting session:', err);
+        console.error('Error initializing user session:', err);
         setUser(null);
       } finally {
         setLoading(false);
@@ -71,52 +67,34 @@ function UserMenu() {
 
     init();
 
+    // Listen to auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event: AuthChangeEvent, session: Session | null) => {
-        if (!session?.user) {
-          setUser(null);
-        } else {
-          await fetchDbUser(session.user);
-        }
+      (_event: AuthChangeEvent, session: Session | null) => {
+        setUser(session?.user || null);
         setLoading(false);
       }
     );
 
-    return () => {
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, [supabase]);
 
   async function handleSignOut() {
     try {
       await supabase.auth.signOut();
-      setUser(null);
       router.push('/');
       router.refresh();
-    } catch (error) {
-      console.error('Error signing out:', error);
+    } catch (err) {
+      console.error('Error signing out:', err);
     }
   }
 
-  if (loading) {
-    return <div className="h-9 w-9 rounded-full bg-gray-200 animate-pulse" />;
-  }
+  if (loading) return <div className="h-9 w-9 rounded-full bg-gray-200 animate-pulse" />;
 
   if (!user) {
     return (
       <>
-        <Link
-          href="/pricing"
-          className="text-sm font-medium text-gray-700 hover:text-gray-900"
-        >
-          Pricing
-        </Link>
-        <Link
-          href="/sign-in"
-          className="text-sm font-medium text-gray-700 hover:text-gray-900"
-        >
-          Sign In
-        </Link>
+        <Link href="/pricing" className="text-sm font-medium text-gray-700 hover:text-gray-900">Pricing</Link>
+        <Link href="/sign-in" className="text-sm font-medium text-gray-700 hover:text-gray-900">Sign In</Link>
         <Button asChild className="rounded-full">
           <Link href="/sign-up">Sign Up</Link>
         </Button>
@@ -129,13 +107,8 @@ function UserMenu() {
       <DropdownMenuTrigger asChild>
         <button className="focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 rounded-full">
           <Avatar className="cursor-pointer size-9">
-            <AvatarImage
-              src={user.user_metadata?.avatar_url}
-              alt={user.user_metadata?.full_name || user.email || ''}
-            />
-            <AvatarFallback className="bg-orange-500 text-white font-medium">
-              {getInitials(user)}
-            </AvatarFallback>
+            <AvatarImage src={user.user_metadata?.avatar_url} alt={user.user_metadata?.full_name || user.email || ''} />
+            <AvatarFallback className="bg-orange-500 text-white font-medium">{getInitials(user)}</AvatarFallback>
           </Avatar>
         </button>
       </DropdownMenuTrigger>
@@ -146,10 +119,7 @@ function UserMenu() {
             <span>Dashboard</span>
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={handleSignOut}
-          className="cursor-pointer text-red-600 focus:text-red-700"
-        >
+        <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-red-600 focus:text-red-700">
           <LogOut className="mr-2 h-4 w-4" />
           <span>Sign out</span>
         </DropdownMenuItem>
@@ -180,9 +150,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isDashboardPage = pathname?.startsWith('/dashboard');
 
-  if (isDashboardPage) {
-    return <section className="h-screen w-full">{children}</section>;
-  }
+  if (isDashboardPage) return <section className="h-screen w-full">{children}</section>;
 
   return (
     <section className="flex flex-col min-h-screen">
@@ -191,3 +159,4 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     </section>
   );
 }
+

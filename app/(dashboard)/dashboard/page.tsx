@@ -299,37 +299,70 @@ export default function DashboardPage() {
   return (
     <div className="flex h-screen">
       {/* Sidebar */}
-      <div className="w-80 border-r border-gray-200 flex flex-col">
-        <Button onClick={() => createNewChat()} className="m-2">
-          + New Chat
-        </Button>
-        <ScrollArea className="flex-1">
-          {chats.map((chat) => (
-            <div
-              key={chat.id}
-              className={`p-2 flex justify-between items-center cursor-pointer ${
-                chat.id === activeChatId ? "bg-gray-200" : ""
-              }`}
-              onClick={() => setActiveChatId(chat.id)}
-            >
-              <span>{chat.title}</span>
-              <DropdownMenu>
-                <DropdownMenuTrigger>
-                  <MoreHorizontal />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem onClick={() => openRenameModal(chat)}>
-                    Rename
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => openDeleteModal(chat)}>
-                    Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          ))}
-        </ScrollArea>
+<div className="w-80 border-r border-gray-200 flex flex-col">
+  <Button onClick={() => createNewChat()} className="m-2">
+    + New Chat
+  </Button>
+  <ScrollArea className="flex-1">
+    {chats.map((chat) => (
+      <div
+        key={chat.id}
+        className={`p-2 flex justify-between items-center cursor-pointer ${
+          chat.id === activeChatId ? "bg-gray-200" : ""
+        }`}
+        onClick={() => setActiveChatId(chat.id)}
+      >
+        {chat.id === chatToRename?.id ? (
+          <input
+            className="w-full border-b border-gray-400 focus:outline-none"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onBlur={async () => {
+              await supabase
+                .from("chats")
+                .update({ title: renameValue })
+                .eq("id", chat.id);
+              setChats((prev) =>
+                prev.map((c) =>
+                  c.id === chat.id ? { ...c, title: renameValue } : c
+                )
+              );
+              setChatToRename(null);
+            }}
+            onKeyDown={async (e) => {
+              if (e.key === "Enter") {
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
+            autoFocus
+          />
+        ) : (
+          <>
+            <span>{chat.title}</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger>
+                <MoreHorizontal />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setChatToRename(chat);
+                    setRenameValue(chat.title);
+                  }}
+                >
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openDeleteModal(chat)}>
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        )}
       </div>
+    ))}
+  </ScrollArea>
+</div>
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col">

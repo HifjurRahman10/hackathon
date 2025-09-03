@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TextareaAutosize from "react-textarea-autosize";
+import { Input } from "@/components/ui/input";
 
 const supabase = sb();
 
@@ -36,18 +37,18 @@ export default function DashboardPage() {
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chats, activeChatId]);
 
-  // Fetch chats on mount
+  // Fetch chats
   useEffect(() => {
     const fetchChats = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
       const { data: localUser } = await supabase
@@ -90,11 +91,10 @@ export default function DashboardPage() {
     fetchChats();
   }, []);
 
-  // 🔄 Realtime: listen for new messages + scenes
+  // Realtime subscriptions
   useEffect(() => {
     if (!activeChatId) return;
 
-    // Messages
     const messagesChannel = supabase
       .channel(`messages-${activeChatId}`)
       .on(
@@ -123,7 +123,6 @@ export default function DashboardPage() {
       )
       .subscribe();
 
-    // Scenes
     const scenesChannel = supabase
       .channel(`scenes-${activeChatId}`)
       .on(
@@ -171,21 +170,68 @@ export default function DashboardPage() {
     setInputs((prev) => ({ ...prev, [activeChatId]: value }));
   };
 
-  /** 🔥 Send message + scenes + gen images */
+  // --- New Chat ---
+  const createNewChat = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: localUser } = await supabase
+        .from("users")
+        .select("id")
+        .eq("supabase_id", user.id)
+        .single();
+      if (!localUser) return;
+
+      const { data: newChat } = await supabase
+        .from("chats")
+        .insert({
+          user_id: localUser.id,
+          title: "New Chat",
+        })
+        .select()
+        .single();
+
+      if (newChat) {
+        setChats((prev) => [{ ...newChat, messages: [], scenes: [] }, ...prev]);
+        setActiveChatId(newChat.id);
+        setInputs((prev) => ({ ...prev, [newChat.id]: "" }));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // --- Delete Chat ---
+  const deleteChat = async (chatId: string) => {
+    if (!confirm("Delete this chat?")) return;
+    await supabase.from("chats").delete().eq("id", chatId);
+    setChats((prev) => prev.filter((c) => c.id !== chatId));
+    if (activeChatId === chatId) setActiveChatId(null);
+  };
+
+  // --- Rename Chat ---
+  const renameChat = async (chatId: string, newTitle: string) => {
+    await supabase.from("chats").update({ title: newTitle }).eq("id", chatId);
+    setChats((prev) =>
+      prev.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c))
+    );
+    setRenamingChatId(null);
+  };
+
+  // --- Send message + scenes + image gen ---
   const sendMessage = async () => {
     if (!activeChatId || !inputs[activeChatId]?.trim()) return;
     setLoading(true);
     const content = inputs[activeChatId];
 
     try {
-      // 1. Insert message
       await supabase.from("messages").insert({
         chat_id: activeChatId,
         role: "user",
         content,
       });
 
-      // 2. Call LLM to generate scenes
       const res = await fetch("/api/sendMessage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -194,7 +240,6 @@ export default function DashboardPage() {
       if (!res.ok) throw new Error("Scene generation failed");
       const { scenes } = await res.json();
 
-      // 3. For each scene: gen image + insert row
       await Promise.all(
         scenes.map(async (s: any, idx: number) => {
           try {
@@ -206,7 +251,6 @@ export default function DashboardPage() {
             if (!imgRes.ok) throw new Error("Image gen failed");
             const { url } = await imgRes.json();
 
-            // Insert scene with image
             await supabase.from("scenes").insert({
               chat_id: activeChatId,
               scene_number: idx + 1,
@@ -232,8 +276,8 @@ export default function DashboardPage() {
     <div className="flex h-screen">
       {/* Sidebar */}
       <aside className="w-72 border-r bg-muted/30 flex flex-col">
-        <div className="p-4 border-b">
-          <Button onClick={() => {}} className="w-full">
+        <div className="p-4 border-b flex gap-2">
+          <Button onClick={createNewChat} className="flex-1">
             + New Chat
           </Button>
         </div>
@@ -241,17 +285,48 @@ export default function DashboardPage() {
           {chats.map((chat) => (
             <div
               key={chat.id}
-              onClick={() => setActiveChatId(chat.id)}
               className={`p-4 cursor-pointer transition-colors ${
                 activeChatId === chat.id
                   ? "bg-primary/10 border-l-4 border-primary"
                   : "hover:bg-accent"
               }`}
             >
-              <p className="font-medium truncate">{chat.title}</p>
-              <p className="text-xs text-muted-foreground">
-                {new Date(chat.created_at).toLocaleDateString()}
-              </p>
+              {renamingChatId === chat.id ? (
+                <div className="flex gap-2">
+                  <Input
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button onClick={() => renameChat(chat.id, renameValue)}>
+                    Save
+                  </Button>
+                  <Button onClick={() => setRenamingChatId(null)}>Cancel</Button>
+                </div>
+              ) : (
+                <div className="flex justify-between items-center">
+                  <div
+                    onClick={() => setActiveChatId(chat.id)}
+                    className="truncate"
+                  >
+                    {chat.title}
+                  </div>
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setRenamingChatId(chat.id);
+                        setRenameValue(chat.title);
+                      }}
+                    >
+                      Rename
+                    </Button>
+                    <Button size="sm" onClick={() => deleteChat(chat.id)}>
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </ScrollArea>
@@ -259,7 +334,6 @@ export default function DashboardPage() {
 
       {/* Main */}
       <main className="flex-1 flex flex-col">
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {activeChat?.messages?.map((msg, i) => (
             <div
@@ -305,7 +379,7 @@ export default function DashboardPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input area */}
+        {/* Input */}
         <div className="sticky bottom-0 w-full bg-background p-4 border-t">
           <div className="flex items-end gap-2 max-w-3xl mx-auto">
             <TextareaAutosize

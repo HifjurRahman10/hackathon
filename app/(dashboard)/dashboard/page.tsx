@@ -2,24 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { sb } from "@/lib/auth/supabase-browser";
-import {
-  Input
-} from "@/components/ui/input";
-import {
-  Button
-} from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardHeader,
   CardTitle,
-  CardContent
+  CardContent,
 } from "@/components/ui/card";
-import {
-  ScrollArea
-} from "@/components/ui/scroll-area";
-import {
-  Separator
-} from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import TextareaAutosize from "react-textarea-autosize";
 
 const supabase = sb();
 
@@ -43,7 +34,6 @@ export default function DashboardPage() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [inputs, setInputs] = useState<Record<string, string>>({});
-  const [numScenes, setNumScenes] = useState(3);
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -55,7 +45,9 @@ export default function DashboardPage() {
   // Fetch chats on mount
   useEffect(() => {
     const fetchChats = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) return;
 
       const { data: localUser } = await supabase
@@ -98,6 +90,80 @@ export default function DashboardPage() {
     fetchChats();
   }, []);
 
+  // 🔄 Realtime: listen for new messages + scenes
+  useEffect(() => {
+    if (!activeChatId) return;
+
+    // Messages
+    const messagesChannel = supabase
+      .channel(`messages-${activeChatId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `chat_id=eq.${activeChatId}`,
+        },
+        (payload) => {
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === activeChatId
+                ? {
+                    ...c,
+                    messages: [
+                      ...c.messages,
+                      { role: payload.new.role, content: payload.new.content },
+                    ],
+                  }
+                : c
+            )
+          );
+        }
+      )
+      .subscribe();
+
+    // Scenes
+    const scenesChannel = supabase
+      .channel(`scenes-${activeChatId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "scenes",
+          filter: `chat_id=eq.${activeChatId}`,
+        },
+        (payload) => {
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === activeChatId
+                ? {
+                    ...c,
+                    scenes: [
+                      ...c.scenes,
+                      {
+                        sceneNumber: payload.new.scene_number,
+                        scenePrompt: payload.new.scene_prompt,
+                        sceneImagePrompt: payload.new.scene_image_prompt,
+                        characterDescription: payload.new.character_description,
+                        imageUrl: payload.new.image_url,
+                      },
+                    ],
+                  }
+                : c
+            )
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(messagesChannel);
+      supabase.removeChannel(scenesChannel);
+    };
+  }, [activeChatId]);
+
   const activeChat = chats.find((c) => c.id === activeChatId);
 
   const handleInputChange = (value: string) => {
@@ -105,18 +171,67 @@ export default function DashboardPage() {
     setInputs((prev) => ({ ...prev, [activeChatId]: value }));
   };
 
-  // Scene count input handler
-  const handleSceneCountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let val = e.target.value.trim();
-    if (/^0+/.test(val)) val = String(Number(val));
-    const num = Number(val);
-    if (!isNaN(num) && num >= 1 && num <= 99) setNumScenes(num);
+  /** 🔥 Send message + scenes + gen images */
+  const sendMessage = async () => {
+    if (!activeChatId || !inputs[activeChatId]?.trim()) return;
+    setLoading(true);
+    const content = inputs[activeChatId];
+
+    try {
+      // 1. Insert message
+      await supabase.from("messages").insert({
+        chat_id: activeChatId,
+        role: "user",
+        content,
+      });
+
+      // 2. Call LLM to generate scenes
+      const res = await fetch("/api/sendMessage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatId: activeChatId, message: content }),
+      });
+      if (!res.ok) throw new Error("Scene generation failed");
+      const { scenes } = await res.json();
+
+      // 3. For each scene: gen image + insert row
+      await Promise.all(
+        scenes.map(async (s: any, idx: number) => {
+          try {
+            const imgRes = await fetch("/api/genImage", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prompt: s.sceneImagePrompt }),
+            });
+            if (!imgRes.ok) throw new Error("Image gen failed");
+            const { url } = await imgRes.json();
+
+            // Insert scene with image
+            await supabase.from("scenes").insert({
+              chat_id: activeChatId,
+              scene_number: idx + 1,
+              scene_prompt: s.scenePrompt,
+              scene_image_prompt: s.sceneImagePrompt,
+              character_description: s.characterDescription,
+              image_url: url,
+            });
+          } catch (err) {
+            console.error("Scene insert failed", err);
+          }
+        })
+      );
+    } catch (err) {
+      console.error("Send failed", err);
+    } finally {
+      setInputs((prev) => ({ ...prev, [activeChatId]: "" }));
+      setLoading(false);
+    }
   };
 
   return (
     <div className="flex h-screen">
       {/* Sidebar */}
-      <aside className="w-80 border-r bg-muted/30 flex flex-col">
+      <aside className="w-72 border-r bg-muted/30 flex flex-col">
         <div className="p-4 border-b">
           <Button onClick={() => {}} className="w-full">
             + New Chat
@@ -144,23 +259,8 @@ export default function DashboardPage() {
 
       {/* Main */}
       <main className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="font-semibold text-lg">
-            {activeChat?.title || "Select a chat"}
-          </h2>
-          <Input
-            type="number"
-            min={1}
-            max={99}
-            value={numScenes}
-            onChange={handleSceneCountChange}
-            className="w-20"
-          />
-        </div>
-
-        {/* Messages + Scenes */}
-        <ScrollArea className="flex-1 p-4 space-y-4">
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {activeChat?.messages?.map((msg, i) => (
             <div
               key={i}
@@ -169,7 +269,7 @@ export default function DashboardPage() {
               }`}
             >
               <div
-                className={`px-4 py-2 rounded-2xl text-sm shadow ${
+                className={`px-4 py-2 rounded-2xl text-sm shadow max-w-lg break-words ${
                   msg.role === "user"
                     ? "bg-primary text-primary-foreground"
                     : "bg-accent text-accent-foreground"
@@ -195,7 +295,7 @@ export default function DashboardPage() {
                   />
                 ) : (
                   <p className="text-muted-foreground italic">
-                    Image generating...
+                    Generating image...
                   </p>
                 )}
               </CardContent>
@@ -203,24 +303,34 @@ export default function DashboardPage() {
           ))}
 
           <div ref={messagesEndRef} />
-        </ScrollArea>
-
-        <Separator />
+        </div>
 
         {/* Input area */}
-        <div className="flex p-4 gap-2">
-          <Input
-            placeholder="Write your story..."
-            value={activeChatId ? inputs[activeChatId] : ""}
-            onChange={(e) => handleInputChange(e.target.value)}
-            disabled={loading}
-          />
-          <Button
-            onClick={() => {}}
-            disabled={!activeChatId || !inputs[activeChatId]?.trim() || loading}
-          >
-            Send
-          </Button>
+        <div className="sticky bottom-0 w-full bg-background p-4 border-t">
+          <div className="flex items-end gap-2 max-w-3xl mx-auto">
+            <TextareaAutosize
+              minRows={1}
+              maxRows={6}
+              placeholder="Write your story..."
+              value={activeChatId ? inputs[activeChatId] : ""}
+              onChange={(e) => handleInputChange(e.target.value)}
+              disabled={loading}
+              className="w-full resize-none rounded-full border px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-background shadow-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+            />
+            <Button
+              onClick={sendMessage}
+              disabled={!activeChatId || !inputs[activeChatId]?.trim() || loading}
+              className="rounded-full"
+            >
+              Send
+            </Button>
+          </div>
         </div>
       </main>
     </div>

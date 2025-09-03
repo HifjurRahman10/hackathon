@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     const bucket = "images";
     await ensureBucket(bucket);
 
-    const fileName = `${sceneNumber}_image.png`;
+    const fileName = `${sceneNumber}_${Date.now()}.png`;
     const filePath = `${userId}/${chatId}/${fileName}`;
 
     if (!force) {
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
       prompt,
       size: "1024x1024",
       n: 1,
-      response_format: "b64_json"
+      quality: 'low'
     });
 
     const b64 = aiResp.data?.[0]?.b64_json;

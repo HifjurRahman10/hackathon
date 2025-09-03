@@ -215,32 +215,42 @@ export default function DashboardPage() {
 
       setInputs(prev => ({ ...prev, [chat.id]: "" }));
 
-      // Generate images for scenes in parallel
+      // Generate scenes
       for (let i = 1; i <= numScenes; i++) {
         const scenePrompt = `${messageInput} (Scene ${i})`;
 
-        // Call the API to generate the image
+        // Insert scene first
+        const { data: sceneInsert } = await supabase
+          .from("scenes")
+          .insert({
+            chat_id: chat.id,
+            sceneNumber: i,
+            scenePrompt,
+            sceneImagePrompt: scenePrompt,
+          } as any)
+          .select()
+          .single();
+
+        if (!sceneInsert) continue;
+
+        // Call image generation API
         const response = await fetch("/api/genImage", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: scenePrompt }),
+          body: JSON.stringify({ prompt: scenePrompt, sceneId: sceneInsert.id }),
         });
 
         if (!response.ok) continue;
         const { imageUrl } = await response.json();
 
-        // Insert scene into database AFTER image is generated
-        await supabase.from("scenes").insert({
-          chat_id: chat.id,
-          sceneNumber: i,
-          scenePrompt,
-          sceneImagePrompt: scenePrompt,
-          imageUrl,
-        });
+        // Update scene with imageUrl
+        await supabase
+          .from("scenes")
+          .update({ imageUrl })
+          .eq("id", sceneInsert.id);
       }
 
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-
     } catch (err) {
       console.error(err);
     } finally {

@@ -2,16 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { sb } from "@/lib/auth/supabase-browser";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import TextareaAutosize from "react-textarea-autosize";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const supabase = sb();
 
@@ -21,6 +15,8 @@ type Scene = {
   sceneImagePrompt: string;
   characterDescription?: string;
   imageUrl?: string | null;
+  pending?: boolean;
+  error?: boolean;
 };
 
 type Chat = {
@@ -35,12 +31,12 @@ export default function DashboardPage() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [numScenes, setNumScenes] = useState(3);
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll
+  // Auto-scroll messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chats, activeChatId]);
@@ -48,14 +44,16 @@ export default function DashboardPage() {
   // Fetch chats
   useEffect(() => {
     const fetchChats = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const { data } = await supabase.auth.getUser();
+      const authUser = data.user;
+      if (!authUser) return;
 
       const { data: localUser } = await supabase
         .from("users")
         .select("id")
-        .eq("supabase_id", user.id)
+        .eq("supabase_id", authUser.id)
         .single();
+
       if (!localUser) return;
 
       const { data: chatData } = await supabase
@@ -65,348 +63,238 @@ export default function DashboardPage() {
         .order("created_at", { ascending: false });
 
       if (chatData) {
-        const normalized = chatData.map((c: any) => ({
-          ...c,
-          messages: c.messages.map((m: any) => ({
-            role: m.role,
-            content: m.content,
-          })),
-          scenes: c.scenes.map((s: any) => ({
-            sceneNumber: s.scene_number,
-            scenePrompt: s.scene_prompt,
-            sceneImagePrompt: s.scene_image_prompt,
-            characterDescription: s.character_description,
-            imageUrl: s.image_url,
-          })),
-        }));
-
         const savedInputs: Record<string, string> = {};
-        normalized.forEach((c: any) => (savedInputs[c.id] = ""));
+        chatData.forEach((c: any) => (savedInputs[c.id] = ""));
         setInputs(savedInputs);
-        setChats(normalized);
-        if (normalized.length) setActiveChatId(normalized[0].id);
+        setChats(chatData);
+        if (chatData.length) setActiveChatId(chatData[0].id);
       }
     };
 
     fetchChats();
   }, []);
 
-  // Realtime subscriptions
-  useEffect(() => {
-    if (!activeChatId) return;
-
-    const messagesChannel = supabase
-      .channel(`messages-${activeChatId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `chat_id=eq.${activeChatId}`,
-        },
-        (payload) => {
-          setChats((prev) =>
-            prev.map((c) =>
-              c.id === activeChatId
-                ? {
-                    ...c,
-                    messages: [
-                      ...c.messages,
-                      { role: payload.new.role, content: payload.new.content },
-                    ],
-                  }
-                : c
-            )
-          );
-        }
-      )
-      .subscribe();
-
-    const scenesChannel = supabase
-      .channel(`scenes-${activeChatId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "scenes",
-          filter: `chat_id=eq.${activeChatId}`,
-        },
-        (payload) => {
-          setChats((prev) =>
-            prev.map((c) =>
-              c.id === activeChatId
-                ? {
-                    ...c,
-                    scenes: [
-                      ...c.scenes,
-                      {
-                        sceneNumber: payload.new.scene_number,
-                        scenePrompt: payload.new.scene_prompt,
-                        sceneImagePrompt: payload.new.scene_image_prompt,
-                        characterDescription: payload.new.character_description,
-                        imageUrl: payload.new.image_url,
-                      },
-                    ],
-                  }
-                : c
-            )
-          );
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(messagesChannel);
-      supabase.removeChannel(scenesChannel);
-    };
-  }, [activeChatId]);
-
   const activeChat = chats.find((c) => c.id === activeChatId);
 
   const handleInputChange = (value: string) => {
     if (!activeChatId) return;
     setInputs((prev) => ({ ...prev, [activeChatId]: value }));
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
+      inputRef.current.style.height = inputRef.current.scrollHeight + "px";
+    }
   };
 
-  // --- New Chat ---
-  const createNewChat = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+  const createNewChat = async (title = "New Chat") => {
+    const { data } = await supabase.auth.getUser();
+    const authUser = data.user;
+    if (!authUser) return;
 
-      const { data: localUser } = await supabase
+    let { data: localUser } = await supabase
+      .from("users")
+      .select("id")
+      .eq("supabase_id", authUser.id)
+      .single();
+
+    if (!localUser) {
+      const { data: newUser } = await supabase
         .from("users")
-        .select("id")
-        .eq("supabase_id", user.id)
-        .single();
-      if (!localUser) return;
-
-      const { data: newChat } = await supabase
-        .from("chats")
         .insert({
-          user_id: localUser.id,
-          title: "New Chat",
+          supabase_id: authUser.id,
+          email: authUser.email || "",
+          name: authUser.user_metadata?.full_name || authUser.email?.split("@")[0] || "",
+          role: "member",
+        })
+        .select("id")
+        .single();
+      localUser = newUser!;
+    }
+
+    const { data: newChat } = await supabase
+      .from("chats")
+      .insert({
+        title,
+        user_id: localUser.id,
+      })
+      .select()
+      .single();
+
+    if (newChat) {
+      setChats((prev) => [{ ...newChat, messages: [], scenes: [] }, ...prev]);
+      setActiveChatId(newChat.id);
+      setInputs((prev) => ({ ...prev, [newChat.id]: "" }));
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!activeChatId) return;
+    const messageInput = inputs[activeChatId ?? ""]?.trim();
+    if (!messageInput) return;
+
+    setLoading(true);
+    try {
+      const chat = chats.find((c) => c.id === activeChatId);
+      if (!chat) return;
+
+      const { data } = await supabase.auth.getUser();
+      const authUser = data.user;
+      if (!authUser) return;
+
+      const { data: userMsg, error: msgError } = await supabase
+        .from("messages")
+        .insert({
+          chat_id: chat.id,
+          user_id: authUser.id,
+          role: "user",
+          content: messageInput,
         })
         .select()
         .single();
 
-      if (newChat) {
-        setChats((prev) => [{ ...newChat, messages: [], scenes: [] }, ...prev]);
-        setActiveChatId(newChat.id);
-        setInputs((prev) => ({ ...prev, [newChat.id]: "" }));
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
+      if (msgError) console.error("Failed to save user message:", msgError);
 
-  // --- Delete Chat ---
-  const deleteChat = async (chatId: string) => {
-    if (!confirm("Delete this chat?")) return;
-    await supabase.from("chats").delete().eq("id", chatId);
-    setChats((prev) => prev.filter((c) => c.id !== chatId));
-    if (activeChatId === chatId) setActiveChatId(null);
-  };
-
-  // --- Rename Chat ---
-  const renameChat = async (chatId: string, newTitle: string) => {
-    await supabase.from("chats").update({ title: newTitle }).eq("id", chatId);
-    setChats((prev) =>
-      prev.map((c) => (c.id === chatId ? { ...c, title: newTitle } : c))
-    );
-    setRenamingChatId(null);
-  };
-
-  // --- Send message + scenes + image gen ---
-  const sendMessage = async () => {
-    if (!activeChatId || !inputs[activeChatId]?.trim()) return;
-    setLoading(true);
-    const content = inputs[activeChatId];
-
-    try {
-      await supabase.from("messages").insert({
-        chat_id: activeChatId,
-        role: "user",
-        content,
-      });
-
-      const res = await fetch("/api/sendMessage", {
+      // Call chat API
+      const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chatId: activeChatId, message: content }),
+        body: JSON.stringify({
+          chatId: chat.id,
+          messages: [...chat.messages, { role: "user", content: messageInput }],
+          numScenes,
+          userId: authUser.id,
+        }),
       });
-      if (!res.ok) throw new Error("Scene generation failed");
-      const { scenes } = await res.json();
 
+      if (!res.ok) throw new Error("Failed to send message");
+
+      const dataResp = await res.json();
+      const updatedScenes = [...chat.scenes, ...dataResp.scenes];
+
+      // Generate images in parallel & update DB
       await Promise.all(
-        scenes.map(async (s: any, idx: number) => {
-          try {
-            const imgRes = await fetch("/api/genImage", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ prompt: s.sceneImagePrompt }),
-            });
-            if (!imgRes.ok) throw new Error("Image gen failed");
-            const { url } = await imgRes.json();
+        updatedScenes.map(async (scene) => {
+          const imgRes = await fetch("/api/genImage", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prompt: scene.sceneImagePrompt,
+              chatId: chat.id,
+              sceneNumber: scene.sceneNumber,
+              userId: authUser.id,
+            }),
+          });
 
-            await supabase.from("scenes").insert({
-              chat_id: activeChatId,
-              scene_number: idx + 1,
-              scene_prompt: s.scenePrompt,
-              scene_image_prompt: s.sceneImagePrompt,
-              character_description: s.characterDescription,
-              image_url: url,
-            });
-          } catch (err) {
-            console.error("Scene insert failed", err);
-          }
+          if (!imgRes.ok) return;
+          const { imageUrl } = await imgRes.json();
+          scene.imageUrl = imageUrl;
+
+          await supabase.from("scenes").update({ imageUrl }).eq("chat_id", chat.id).eq("scene_number", scene.sceneNumber);
         })
       );
+
+      // Update state
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === chat.id
+            ? {
+                ...c,
+                messages: [...c.messages, { role: "user", content: messageInput }],
+                scenes: updatedScenes,
+              }
+            : c
+        )
+      );
+
+      setInputs((prev) => ({ ...prev, [chat.id]: "" }));
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     } catch (err) {
-      console.error("Send failed", err);
+      console.error(err);
     } finally {
-      setInputs((prev) => ({ ...prev, [activeChatId]: "" }));
       setLoading(false);
     }
   };
 
+  const handleSceneCountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = e.target.value.trim();
+    if (/^0+/.test(val)) val = String(Number(val));
+    const num = Number(val);
+    if (!isNaN(num) && num >= 1 && num <= 99) setNumScenes(num);
+  };
+
+  const inputPlaceholder = activeChat ? "Write your story..." : "Start your first chat...";
+
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen w-full">
       {/* Sidebar */}
-      <aside className="w-72 border-r bg-muted/30 flex flex-col">
-        <div className="p-4 border-b flex gap-2">
-          <Button onClick={createNewChat} className="flex-1">
-            + New Chat
+      <div className="w-80 bg-white border-r flex flex-col">
+        <div className="p-4 border-b">
+          <Button onClick={() => createNewChat()} className="w-full">
+            New Chat
           </Button>
         </div>
         <ScrollArea className="flex-1">
           {chats.map((chat) => (
             <div
               key={chat.id}
-              className={`p-4 cursor-pointer transition-colors ${
-                activeChatId === chat.id
-                  ? "bg-primary/10 border-l-4 border-primary"
-                  : "hover:bg-accent"
-              }`}
+              onClick={() => setActiveChatId(chat.id)}
+              className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${activeChatId === chat.id ? "bg-blue-50 border-blue-200" : ""}`}
             >
-              {renamingChatId === chat.id ? (
-                <div className="flex gap-2">
-                  <Input
-                    value={renameValue}
-                    onChange={(e) => setRenameValue(e.target.value)}
-                    className="flex-1"
-                  />
-                  <Button onClick={() => renameChat(chat.id, renameValue)}>
-                    Save
-                  </Button>
-                  <Button onClick={() => setRenamingChatId(null)}>Cancel</Button>
-                </div>
-              ) : (
-                <div className="flex justify-between items-center">
-                  <div
-                    onClick={() => setActiveChatId(chat.id)}
-                    className="truncate"
-                  >
-                    {chat.title}
-                  </div>
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setRenamingChatId(chat.id);
-                        setRenameValue(chat.title);
-                      }}
-                    >
-                      Rename
-                    </Button>
-                    <Button size="sm" onClick={() => deleteChat(chat.id)}>
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              )}
+              <h3 className="truncate font-medium">{chat.title}</h3>
+              <p className="text-sm text-gray-500">{new Date(chat.created_at).toLocaleDateString()}</p>
             </div>
           ))}
         </ScrollArea>
-      </aside>
+      </div>
 
       {/* Main */}
-      <main className="flex-1 flex flex-col">
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+      <div className="flex-1 flex flex-col">
+        <div className="flex justify-between items-center p-4 border-b">
+          <h2 className="font-bold">{activeChat?.title || "Select a chat"}</h2>
+          <Input type="number" min={1} max={99} value={numScenes} onChange={handleSceneCountChange} className="w-20" />
+        </div>
+
+        <ScrollArea className="flex-1 p-4 space-y-4 overflow-y-auto">
           {activeChat?.messages?.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex ${
-                msg.role === "user" ? "justify-end" : "justify-start"
-              }`}
-            >
-              <div
-                className={`px-4 py-2 rounded-2xl text-sm shadow max-w-lg break-words ${
-                  msg.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-accent text-accent-foreground"
-                }`}
-              >
+            <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div className={`px-4 py-2 rounded-lg max-w-xs ${msg.role === "user" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-900"}`}>
                 {msg.content}
               </div>
             </div>
           ))}
 
           {activeChat?.scenes?.map((scene) => (
-            <Card key={scene.sceneNumber} className="shadow-sm">
-              <CardHeader>
-                <CardTitle>Scene {scene.sceneNumber}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <p className="text-sm">{scene.scenePrompt}</p>
+            <Card key={scene.sceneNumber}>
+              <CardContent>
+                <p className="font-semibold mb-2">Scene {scene.sceneNumber}</p>
+                <p className="mb-2">{scene.scenePrompt}</p>
                 {scene.imageUrl ? (
-                  <img
-                    src={scene.imageUrl}
-                    alt={`Scene ${scene.sceneNumber}`}
-                    className="rounded-lg border"
-                  />
+                  <img src={scene.imageUrl} alt={`Scene ${scene.sceneNumber}`} className="rounded-lg border" />
                 ) : (
-                  <p className="text-muted-foreground italic">
-                    Generating image...
-                  </p>
+                  <p className="italic text-gray-400">Image generating...</p>
                 )}
               </CardContent>
             </Card>
           ))}
 
           <div ref={messagesEndRef} />
-        </div>
+        </ScrollArea>
 
         {/* Input */}
-        <div className="sticky bottom-0 w-full bg-background p-4 border-t">
-          <div className="flex items-end gap-2 max-w-3xl mx-auto">
-            <TextareaAutosize
-              minRows={1}
-              maxRows={6}
-              placeholder="Write your story..."
-              value={activeChatId ? inputs[activeChatId] : ""}
-              onChange={(e) => handleInputChange(e.target.value)}
-              disabled={loading}
-              className="w-full resize-none rounded-full border px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-background shadow-sm"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  sendMessage();
-                }
-              }}
-            />
-            <Button
-              onClick={sendMessage}
-              disabled={!activeChatId || !inputs[activeChatId]?.trim() || loading}
-              className="rounded-full"
-            >
-              Send
-            </Button>
-          </div>
+        <div className="p-4 border-t bg-white flex items-end gap-2 sticky bottom-0">
+          <textarea
+            ref={inputRef}
+            placeholder={inputPlaceholder}
+            value={activeChatId ? inputs[activeChatId ?? ""] : ""}
+            onChange={(e) => handleInputChange(e.target.value)}
+            className="flex-1 resize-none rounded-full border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            rows={1}
+            disabled={loading}
+          />
+          <Button onClick={sendMessage} disabled={!activeChatId || !inputs[activeChatId ?? ""]?.trim() || loading}>
+            Send
+          </Button>
         </div>
-      </main>
+      </div>
     </div>
   );
 }

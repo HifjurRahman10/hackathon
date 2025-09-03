@@ -387,8 +387,7 @@ export default function DashboardPage() {
           <TextareaAutosize
             minRows={1}
             maxRows={6}
-            className="flex-1 resize-none px-5 py-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-all placeholder-gray-400 text-gray-900 shadow-sm overflow-auto max-h-[200px]"
-            placeholder={activeChat ? "Write your story..." : "Start by typing a prompt..."}
+            className="flex-1 resize-none px-4 py-3 rounded-md border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none placeholder-gray-400 text-gray-900 shadow-sm overflow-auto"            placeholder={activeChat ? "Write your story..." : "Start by typing a prompt..."}
             value={activeChatId ? inputs[activeChatId] : ""}
             onChange={(e) => handleInputChange(e.target.value)}
             disabled={loading}
@@ -402,7 +401,7 @@ export default function DashboardPage() {
           <Button
             onClick={sendMessage}
             disabled={!activeChatId || !inputs[activeChatId]?.trim() || loading}
-            className="flex-shrink-0 px-6 py-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md transition"
+            className="flex-shrink-0 px-6 py-3 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md transition"
           >
             Send
           </Button>

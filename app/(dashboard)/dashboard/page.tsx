@@ -382,29 +382,31 @@ export default function DashboardPage() {
       </ScrollArea>
 
       {/* Input */}
-      <div className="w-full p-4 border-t bg-white flex items-end gap-2 fixed bottom-0 left-0 right-0">
-        <TextareaAutosize
-          minRows={1}
-          maxRows={6}
-          className="flex-1 resize-none px-5 py-3 rounded-full border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-all placeholder-gray-400 text-gray-900 shadow-sm"
-          placeholder={activeChat ? "Write your story..." : "Start by typing a prompt..."}
-          value={activeChatId ? inputs[activeChatId] : ""}
-          onChange={(e) => handleInputChange(e.target.value)}
-          disabled={loading}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              sendMessage();
-            }
-          }}
-        />
-        <Button
-          onClick={sendMessage}
-          disabled={!activeChatId || !inputs[activeChatId]?.trim() || loading}
-          className="flex-shrink-0 px-6 py-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md transition"
-        >
-          Send
-        </Button>
+      <div className="w-full flex justify-center p-4 border-t bg-white">
+        <div className="flex items-end gap-2 w-full max-w-3xl">
+          <TextareaAutosize
+            minRows={1}
+            maxRows={6}
+            className="flex-1 resize-none px-5 py-3 rounded-full border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-all placeholder-gray-400 text-gray-900 shadow-sm"
+            placeholder={activeChat ? "Write your story..." : "Start by typing a prompt..."}
+            value={activeChatId ? inputs[activeChatId] : ""}
+            onChange={(e) => handleInputChange(e.target.value)}
+            disabled={loading}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
+          />
+          <Button
+            onClick={sendMessage}
+            disabled={!activeChatId || !inputs[activeChatId]?.trim() || loading}
+            className="flex-shrink-0 px-6 py-3 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md transition"
+          >
+            Send
+          </Button>
+        </div>
       </div>
     </div>
   </div>

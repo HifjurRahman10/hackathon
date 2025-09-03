@@ -4,7 +4,6 @@ import { activityLogs, teamMembers, teams, users } from './schema';
 import type { User } from './schema';
 import { cookies } from 'next/headers';
 import { verifyToken } from '@/lib/auth/session';
-import type { Session } from '@supabase/supabase-js';
 
 export async function getUser(): Promise<User | null> {
   const sessionCookie = (await cookies()).get('session');

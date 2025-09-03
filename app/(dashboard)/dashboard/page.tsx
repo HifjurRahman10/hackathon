@@ -6,6 +6,20 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import { MoreHorizontal } from "lucide-react";
 
 const supabase = sb();
 
@@ -15,15 +29,18 @@ type Scene = {
   sceneImagePrompt: string;
   characterDescription?: string;
   imageUrl?: string | null;
-  pending?: boolean;
-  error?: boolean;
+};
+
+type Message = {
+  role: string;
+  content: string;
 };
 
 type Chat = {
   id: string;
   title: string;
   created_at: string;
-  messages: { role: string; content: string }[];
+  messages: Message[];
   scenes: Scene[];
 };
 
@@ -33,28 +50,37 @@ export default function DashboardPage() {
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [numScenes, setNumScenes] = useState(3);
   const [loading, setLoading] = useState(false);
+
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [chatToRename, setChatToRename] = useState<Chat | null>(null);
+  const [chatToDelete, setChatToDelete] = useState<Chat | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-scroll messages
+  const activeChat = chats.find((c) => c.id === activeChatId);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chats, activeChatId]);
 
-  // Fetch chats
+  // Fetch chats on mount
   useEffect(() => {
     const fetchChats = async () => {
-      const { data } = await supabase.auth.getUser();
-      const authUser = data.user;
-      if (!authUser) return;
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user?.id) return;
 
       const { data: localUser } = await supabase
         .from("users")
         .select("id")
-        .eq("supabase_id", authUser.id)
+        .eq("supabase_id", user.id)
         .single();
 
-      if (!localUser) return;
+      if (!localUser?.id) return;
 
       const { data: chatData } = await supabase
         .from("chats")
@@ -74,21 +100,19 @@ export default function DashboardPage() {
     fetchChats();
   }, []);
 
-  const activeChat = chats.find((c) => c.id === activeChatId);
-
   const handleInputChange = (value: string) => {
-    if (!activeChatId) return;
-    setInputs((prev) => ({ ...prev, [activeChatId]: value }));
-    if (inputRef.current) {
-      inputRef.current.style.height = "auto";
-      inputRef.current.style.height = inputRef.current.scrollHeight + "px";
+    if (!activeChatId) {
+      setInputs((prev) => ({ ...prev, temp: value }));
+    } else {
+      setInputs((prev) => ({ ...prev, [activeChatId]: value }));
     }
   };
 
   const createNewChat = async (title = "New Chat") => {
-    const { data } = await supabase.auth.getUser();
-    const authUser = data.user;
-    if (!authUser) return;
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+    if (!authUser?.id) return;
 
     let { data: localUser } = await supabase
       .from("users")
@@ -96,13 +120,16 @@ export default function DashboardPage() {
       .eq("supabase_id", authUser.id)
       .single();
 
-    if (!localUser) {
+    if (!localUser?.id) {
       const { data: newUser } = await supabase
         .from("users")
         .insert({
           supabase_id: authUser.id,
           email: authUser.email || "",
-          name: authUser.user_metadata?.full_name || authUser.email?.split("@")[0] || "",
+          name:
+            authUser.user_metadata?.full_name ||
+            authUser.email?.split("@")[0] ||
+            "",
           role: "member",
         })
         .select("id")
@@ -119,41 +146,55 @@ export default function DashboardPage() {
       .select()
       .single();
 
-    if (newChat) {
-      setChats((prev) => [{ ...newChat, messages: [], scenes: [] }, ...prev]);
+    if (newChat?.id) {
+      setChats((prev) => [
+        { ...newChat, messages: [], scenes: [] },
+        ...prev,
+      ]);
       setActiveChatId(newChat.id);
       setInputs((prev) => ({ ...prev, [newChat.id]: "" }));
     }
   };
 
   const sendMessage = async () => {
-    if (!activeChatId) return;
-    const messageInput = inputs[activeChatId ?? ""]?.trim();
+    const messageInput =
+      activeChatId && inputs[activeChatId]
+        ? inputs[activeChatId].trim()
+        : inputs["temp"]?.trim();
+
     if (!messageInput) return;
 
     setLoading(true);
+
     try {
-      const chat = chats.find((c) => c.id === activeChatId);
-      if (!chat) return;
+      let chat = activeChat;
+      if (!chat && messageInput) {
+        // create chat on first message
+        await createNewChat(messageInput);
+        chat = chats.find((c) => c.id === activeChatId);
+        if (!chat) return;
+      }
 
-      const { data } = await supabase.auth.getUser();
-      const authUser = data.user;
-      if (!authUser) return;
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user?.id || !chat?.id) return;
 
-      const { data: userMsg, error: msgError } = await supabase
+      // Save user message
+      const { data: userMsg } = await supabase
         .from("messages")
         .insert({
           chat_id: chat.id,
-          user_id: authUser.id,
+          user_id: user.id,
           role: "user",
           content: messageInput,
         })
         .select()
         .single();
 
-      if (msgError) console.error("Failed to save user message:", msgError);
+      if (!userMsg) throw new Error("Failed to save message");
 
-      // Call chat API
+      // Call Chat API
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -161,51 +202,61 @@ export default function DashboardPage() {
           chatId: chat.id,
           messages: [...chat.messages, { role: "user", content: messageInput }],
           numScenes,
-          userId: authUser.id,
+          userId: user.id,
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to send message");
+      if (!res.ok) throw new Error("Chat API failed");
+      const data = await res.json();
 
-      const dataResp = await res.json();
-      const updatedScenes = [...chat.scenes, ...dataResp.scenes];
+      const updatedScenes: Scene[] = data.scenes;
 
-      // Generate images in parallel & update DB
+      // Parallel image generation
       await Promise.all(
         updatedScenes.map(async (scene) => {
-          const imgRes = await fetch("/api/genImage", {
+          const imageRes = await fetch("/api/genImage", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               prompt: scene.sceneImagePrompt,
-              chatId: chat.id,
+              chatId: chat?.id,
               sceneNumber: scene.sceneNumber,
-              userId: authUser.id,
+              userId: user.id,
+              force: false,
             }),
           });
-
-          if (!imgRes.ok) return;
-          const { imageUrl } = await imgRes.json();
+          if (!imageRes.ok) return;
+          const { imageUrl } = await imageRes.json();
           scene.imageUrl = imageUrl;
 
-          await supabase.from("scenes").update({ imageUrl }).eq("chat_id", chat.id).eq("scene_number", scene.sceneNumber);
+          // Update DB
+          await supabase.from("scenes").insert({
+            chat_id: chat?.id,
+            scene_number: scene.sceneNumber,
+            scene_prompt: scene.scenePrompt,
+            scene_image_prompt: scene.sceneImagePrompt,
+            character_description: scene.characterDescription || null,
+            image_url: imageUrl,
+          });
         })
       );
 
       // Update state
       setChats((prev) =>
         prev.map((c) =>
-          c.id === chat.id
+          c.id === chat?.id
             ? {
                 ...c,
                 messages: [...c.messages, { role: "user", content: messageInput }],
-                scenes: updatedScenes,
+                scenes: [...c.scenes, ...updatedScenes],
               }
             : c
         )
       );
 
-      setInputs((prev) => ({ ...prev, [chat.id]: "" }));
+      if (activeChatId) setInputs((prev) => ({ ...prev, [activeChatId]: "" }));
+      else setInputs((prev) => ({ ...prev, temp: "" }));
+
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     } catch (err) {
       console.error(err);
@@ -214,87 +265,137 @@ export default function DashboardPage() {
     }
   };
 
-  const handleSceneCountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let val = e.target.value.trim();
-    if (/^0+/.test(val)) val = String(Number(val));
-    const num = Number(val);
-    if (!isNaN(num) && num >= 1 && num <= 99) setNumScenes(num);
+  const openRenameModal = (chat: Chat) => {
+    setChatToRename(chat);
+    setRenameValue(chat.title);
+    setRenameModalOpen(true);
   };
 
-  const inputPlaceholder = activeChat ? "Write your story..." : "Start your first chat...";
+  const confirmRename = async () => {
+    if (!chatToRename) return;
+    await supabase
+      .from("chats")
+      .update({ title: renameValue })
+      .eq("id", chatToRename.id);
+    setChats((prev) =>
+      prev.map((c) => (c.id === chatToRename.id ? { ...c, title: renameValue } : c))
+    );
+    setRenameModalOpen(false);
+  };
+
+  const openDeleteModal = (chat: Chat) => {
+    setChatToDelete(chat);
+    setDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!chatToDelete) return;
+    await supabase.from("chats").delete().eq("id", chatToDelete.id);
+    setChats((prev) => prev.filter((c) => c.id !== chatToDelete.id));
+    setDeleteModalOpen(false);
+    if (activeChatId === chatToDelete.id) setActiveChatId(null);
+  };
 
   return (
-    <div className="flex h-screen w-full">
+    <div className="flex h-screen">
       {/* Sidebar */}
-      <div className="w-80 bg-white border-r flex flex-col">
-        <div className="p-4 border-b">
-          <Button onClick={() => createNewChat()} className="w-full">
-            New Chat
-          </Button>
-        </div>
+      <div className="w-80 border-r border-gray-200 flex flex-col">
+        <Button onClick={() => createNewChat()} className="m-2">
+          + New Chat
+        </Button>
         <ScrollArea className="flex-1">
           {chats.map((chat) => (
             <div
               key={chat.id}
+              className={`p-2 flex justify-between items-center cursor-pointer ${
+                chat.id === activeChatId ? "bg-gray-200" : ""
+              }`}
               onClick={() => setActiveChatId(chat.id)}
-              className={`p-4 border-b cursor-pointer hover:bg-gray-50 ${activeChatId === chat.id ? "bg-blue-50 border-blue-200" : ""}`}
             >
-              <h3 className="truncate font-medium">{chat.title}</h3>
-              <p className="text-sm text-gray-500">{new Date(chat.created_at).toLocaleDateString()}</p>
+              <span>{chat.title}</span>
+              <DropdownMenu>
+                <DropdownMenuTrigger>
+                  <MoreHorizontal />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onClick={() => openRenameModal(chat)}>
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => openDeleteModal(chat)}>
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           ))}
         </ScrollArea>
       </div>
 
-      {/* Main */}
+      {/* Chat area */}
       <div className="flex-1 flex flex-col">
-        <div className="flex justify-between items-center p-4 border-b">
-          <h2 className="font-bold">{activeChat?.title || "Select a chat"}</h2>
-          <Input type="number" min={1} max={99} value={numScenes} onChange={handleSceneCountChange} className="w-20" />
-        </div>
-
-        <ScrollArea className="flex-1 p-4 space-y-4 overflow-y-auto">
-          {activeChat?.messages?.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`px-4 py-2 rounded-lg max-w-xs ${msg.role === "user" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-900"}`}>
-                {msg.content}
-              </div>
-            </div>
-          ))}
-
-          {activeChat?.scenes?.map((scene) => (
-            <Card key={scene.sceneNumber}>
+        <ScrollArea className="flex-1 p-4 overflow-y-auto">
+          {activeChat?.messages.map((msg, idx) => (
+            <Card key={idx} className="mb-2">
               <CardContent>
-                <p className="font-semibold mb-2">Scene {scene.sceneNumber}</p>
-                <p className="mb-2">{scene.scenePrompt}</p>
-                {scene.imageUrl ? (
-                  <img src={scene.imageUrl} alt={`Scene ${scene.sceneNumber}`} className="rounded-lg border" />
-                ) : (
-                  <p className="italic text-gray-400">Image generating...</p>
-                )}
+                <strong>{msg.role === "user" ? "You" : "AI"}:</strong>{" "}
+                {msg.content}
               </CardContent>
             </Card>
           ))}
-
           <div ref={messagesEndRef} />
         </ScrollArea>
 
-        {/* Input */}
-        <div className="p-4 border-t bg-white flex items-end gap-2 sticky bottom-0">
+        {/* Input area */}
+        <div
+          className={`p-4 border-t border-gray-200 ${
+            activeChatId || inputs["temp"] ? "" : "flex justify-center"
+          }`}
+        >
           <textarea
             ref={inputRef}
-            placeholder={inputPlaceholder}
-            value={activeChatId ? inputs[activeChatId ?? ""] : ""}
-            onChange={(e) => handleInputChange(e.target.value)}
-            className="flex-1 resize-none rounded-full border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full max-w-3xl p-3 rounded-full border border-gray-300 resize-none focus:outline-none focus:ring focus:ring-blue-300"
             rows={1}
-            disabled={loading}
+            placeholder="Type a message..."
+            value={activeChatId ? inputs[activeChatId] : inputs["temp"] || ""}
+            onChange={(e) => handleInputChange(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), sendMessage())}
           />
-          <Button onClick={sendMessage} disabled={!activeChatId || !inputs[activeChatId ?? ""]?.trim() || loading}>
-            Send
-          </Button>
         </div>
       </div>
+
+      {/* Rename modal */}
+      <Dialog open={renameModalOpen} onOpenChange={setRenameModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Chat</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            placeholder="New chat title"
+          />
+          <DialogFooter>
+            <Button onClick={confirmRename}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete modal */}
+      <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Chat?</DialogTitle>
+          </DialogHeader>
+          <DialogFooter className="flex justify-between">
+            <Button variant="secondary" onClick={() => setDeleteModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

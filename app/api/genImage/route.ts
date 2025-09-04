@@ -31,8 +31,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const bucket = "user_uploads";
-    await ensureBucket(bucket);
+    const bucket = "user_upload";
 
     const fileName = `${sceneNumber}_${Date.now()}.png`;
     const filePath = `${userId}/${chatId}/${fileName}`;

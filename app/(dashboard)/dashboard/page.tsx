@@ -50,17 +50,14 @@ export default function DashboardPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Debug logging for chat IDs
+  // Debug logging
   useEffect(() => {
     console.log("Current chats with IDs:", chats.map(chat => ({
       id: chat.id,
       idType: typeof chat.id,
       title: chat.title
     })));
-    
-    if (activeChatId) {
-      console.log("Active chat ID:", activeChatId, "Type:", typeof activeChatId);
-    }
+    if (activeChatId) console.log("Active chat ID:", activeChatId, "Type:", typeof activeChatId);
   }, [chats, activeChatId]);
 
   // Auto-scroll
@@ -105,14 +102,10 @@ export default function DashboardPage() {
         .order("created_at", { ascending: false });
 
       if (chatData) {
-        console.log("Fetched chats from database:", chatData); // Debug log
-        
         const savedInputs: Record<string, string> = {};
         chatData.forEach((c: any) => {
-          console.log("Processing chat:", c.id, "Type:", typeof c.id); // Debug log
           savedInputs[c.id] = "";
-          // Sort messages and scenes by creation time
-          c.messages = c.messages.sort((a: any, b: any) => 
+          c.messages = c.messages.sort((a: any, b: any) =>
             new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
           );
           c.scenes = c.scenes.sort((a: any, b: any) => a.scene_number - b.scene_number);
@@ -122,7 +115,6 @@ export default function DashboardPage() {
         if (chatData.length) setActiveChatId(chatData[0].id);
       }
     };
-
     fetchChats();
   }, []);
 
@@ -142,7 +134,9 @@ export default function DashboardPage() {
           }))
         );
       }
-    ).subscribe();
+    );
+
+    channel.subscribe();
 
     return () => {
       supabase.removeChannel(channel);
@@ -190,9 +184,6 @@ export default function DashboardPage() {
         .select()
         .single();
 
-      console.log("New chat created:", newChat); // Debug log
-      console.log("New chat ID type:", typeof newChat?.id); // Debug log
-
       if (newChat) {
         setChats((prev) => [{ ...newChat, messages: [], scenes: [] }, ...prev]);
         setActiveChatId(newChat.id);
@@ -220,13 +211,11 @@ export default function DashboardPage() {
         .select("id")
         .eq("supabase_id", authUser.id)
         .single();
-
       if (!localUser) throw new Error("Local user not found");
 
       const chat = chats.find((c) => c.id === activeChatId);
       if (!chat) throw new Error("Chat not found");
 
-      // Insert user message
       const { data: userMsg } = await supabase
         .from("messages")
         .insert({
@@ -237,46 +226,31 @@ export default function DashboardPage() {
         })
         .select()
         .single();
-
       if (!userMsg) throw new Error("Failed to insert message");
 
       setChats(prev =>
-        prev.map(c =>
-          c.id === chat.id ? { ...c, messages: [...c.messages, userMsg] } : c
-        )
+        prev.map(c => c.id === chat.id ? { ...c, messages: [...c.messages, userMsg] } : c)
       );
-
       setInputs(prev => ({ ...prev, [chat.id]: "" }));
 
-      // Prepare chat API request
       const requestBody = {
-        chatId: chat.id, // This should be a UUID string
+        chatId: chat.id,
         messages: [...chat.messages.map(m => ({ role: m.role, content: m.content })), { role: "user", content: messageInput }],
         numScenes: numScenes,
       };
-      
-      console.log("Sending to chat API:", requestBody);
-      console.log("Chat ID being sent:", chat.id, "Type:", typeof chat.id); // Debug log
 
-      // Call the chat API to generate proper scene prompts
       const chatResponse = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
       });
-
-      console.log("Chat API response status:", chatResponse.status);
-      
       if (!chatResponse.ok) {
         const errorData = await chatResponse.json();
-        console.error("Chat API error:", errorData);
-        throw new Error(`Failed to generate scenes: ${errorData.error || 'Unknown error'}`);
+        throw new Error(errorData.error || "Failed to generate scenes");
       }
 
       const { scenes } = await chatResponse.json();
-      console.log("Generated scenes:", scenes);
 
-      // Fetch the newly created scenes from the database to get their IDs
       const { data: createdScenes } = await supabase
         .from("scenes")
         .select("*")
@@ -284,71 +258,43 @@ export default function DashboardPage() {
         .order("scene_number");
 
       if (createdScenes) {
-        // Update local state with the new scenes
         setChats(prev =>
-          prev.map(c =>
-            c.id === chat.id
-              ? { ...c, scenes: createdScenes }
-              : c
-          )
+          prev.map(c => c.id === chat.id ? { ...c, scenes: createdScenes } : c)
         );
 
-        // Generate images for all scenes in parallel
+        // Generate images in parallel
         const imagePromises = createdScenes.map(async (scene: Scene) => {
           try {
-            console.log(`Generating image for scene ${scene.scene_number} with prompt:`, scene.scene_image_prompt);
-            
             const response = await fetch("/api/genImage", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                prompt: scene.scene_image_prompt, // Use the AI-generated image prompt
+                prompt: scene.scene_image_prompt,
                 chatId: chat.id,
                 sceneNumber: scene.scene_number,
                 userId: localUser.id,
               }),
             });
 
-            if (!response.ok) {
-              const errorData = await response.json();
-              console.error(`Image generation failed for scene ${scene.scene_number}:`, errorData);
-              return scene;
-            }
-            
+            if (!response.ok) return scene;
             const { imageUrl } = await response.json();
-            console.log(`Generated image for scene ${scene.scene_number}:`, imageUrl);
 
-            // Update the scene with the image URL in database
-            await supabase
-              .from("scenes")
-              .update({ image_url: imageUrl })
-              .eq("id", scene.id);
+            await supabase.from("scenes").update({ image_url: imageUrl }).eq("id", scene.id);
 
             return { ...scene, image_url: imageUrl };
-          } catch (err) {
-            console.error(`Error generating image for scene ${scene.scene_number}:`, err);
+          } catch {
             return scene;
           }
         });
 
-        // Wait for all image generations to complete
         const updatedScenes = await Promise.all(imagePromises);
-        console.log("All images generated:", updatedScenes);
-
-        // Update local state with the image URLs
         setChats(prev =>
-          prev.map(c =>
-            c.id === chat.id
-              ? { ...c, scenes: updatedScenes }
-              : c
-          )
+          prev.map(c => c.id === chat.id ? { ...c, scenes: updatedScenes } : c)
         );
       }
-
     } catch (err) {
-      console.error("Error in sendMessage:", err);
-      // You might want to show this error to the user
-      alert(`Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
+      console.error(err);
+      alert(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
       setLoadingScenes((prev) => ({ ...prev, [activeChatId!]: false }));
@@ -365,39 +311,19 @@ export default function DashboardPage() {
   const handleRenameChat = async (chatId: string) => {
     if (!renameValue.trim()) return;
     await supabase.from("chats").update({ title: renameValue }).eq("id", chatId);
-    setChats((prev) =>
-      prev.map((c) => (c.id === chatId ? { ...c, title: renameValue } : c))
+    setChats(prev =>
+      prev.map(c => c.id === chatId ? { ...c, title: renameValue } : c)
     );
     setRenamingChat(null);
     setRenameValue("");
   };
 
-  // Group messages and scenes by timestamp for chronological display
+  // Combine messages + scenes chronologically
   const getChatContent = (chat: Chat) => {
     const items: Array<{ type: 'message' | 'scene', data: Message | Scene, timestamp: string }> = [];
-    
-    // Add messages
-    chat.messages.forEach(msg => {
-      items.push({ type: 'message', data: msg, timestamp: msg.created_at });
-    });
-    
-    // Add scenes grouped by their creation time
-    const sceneGroups: Record<string, Scene[]> = {};
-    chat.scenes.forEach(scene => {
-      const key = scene.created_at.split('T')[0]; // Group by date
-      if (!sceneGroups[key]) sceneGroups[key] = [];
-      sceneGroups[key].push(scene);
-    });
-    
-    Object.entries(sceneGroups).forEach(([dateKey, scenes]) => {
-      scenes.forEach(scene => {
-        items.push({ type: 'scene', data: scene, timestamp: scene.created_at });
-      });
-    });
-    
-    // Sort by timestamp
+    chat.messages.forEach(msg => items.push({ type: 'message', data: msg, timestamp: msg.created_at }));
+    chat.scenes.forEach(scene => items.push({ type: 'scene', data: scene, timestamp: scene.created_at }));
     items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    
     return items;
   };
 
@@ -406,9 +332,7 @@ export default function DashboardPage() {
       {/* Sidebar */}
       <div className="w-80 bg-white border-r flex flex-col">
         <div className="p-4 border-b">
-          <Button onClick={() => createNewChat()} className="w-full mb-2">
-            + New Chat
-          </Button>
+          <Button onClick={() => createNewChat()} className="w-full mb-2">+ New Chat</Button>
           <div className="flex items-center gap-2">
             <label className="text-sm font-medium">Scenes:</label>
             <Input
@@ -458,7 +382,7 @@ export default function DashboardPage() {
             <div className="p-4 space-y-4">
               {activeChat ? (
                 <>
-                  {getChatContent(activeChat).map((item, index) => {
+                  {getChatContent(activeChat).map((item) => {
                     if (item.type === 'message') {
                       const msg = item.data as Message;
                       return (
@@ -499,8 +423,8 @@ export default function DashboardPage() {
                                   <div>
                                     <h4 className="font-semibold text-purple-800 mb-2">Visual</h4>
                                     {scene.image_url ? (
-                                      <img 
-                                        src={scene.image_url} 
+                                      <img
+                                        src={scene.image_url}
                                         alt={`Scene ${scene.scene_number}`}
                                         className="w-full h-auto max-h-64 object-contain rounded-lg shadow-sm bg-white"
                                       />
@@ -525,8 +449,6 @@ export default function DashboardPage() {
                       );
                     }
                   })}
-
-                  {/* Loading indicator for scenes */}
                   {loadingScenes[activeChat.id] && (
                     <Card className="p-4 bg-yellow-50 border-yellow-200">
                       <CardContent className="p-0">
@@ -542,7 +464,6 @@ export default function DashboardPage() {
                       </CardContent>
                     </Card>
                   )}
-
                   <div ref={messagesEndRef} />
                 </>
               ) : (
@@ -558,7 +479,6 @@ export default function DashboardPage() {
           </ScrollArea>
         </div>
 
-        {/* Input */}
         {activeChat && (
           <div className="p-4 border-t bg-white flex gap-2">
             <TextareaAutosize
@@ -575,8 +495,8 @@ export default function DashboardPage() {
                 }
               }}
             />
-            <Button 
-              onClick={sendMessage} 
+            <Button
+              onClick={sendMessage}
               disabled={loading || !inputs[activeChat.id]?.trim()}
               className="px-6"
             >

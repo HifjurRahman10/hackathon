@@ -22,10 +22,10 @@ type Message = {
 type Scene = {
   id: string;
   chat_id: string;
-  sceneNumber: number;
-  scenePrompt: string;
-  sceneImagePrompt: string;
-  imageUrl?: string | null;
+  scene_number: number;
+  scene_prompt: string;
+  scene_image_prompt: string;
+  image_url?: string | null;
 };
 
 type Chat = {
@@ -225,9 +225,9 @@ export default function DashboardPage() {
           .from("scenes")
           .insert({
             chat_id: chat.id,
-            sceneNumber: i,
-            scenePrompt,
-            sceneImagePrompt: scenePrompt,
+            scene_number: i,
+            scene_prompt: scenePrompt,
+            scene_image_prompt: scenePrompt,
           })
           .select()
           .single();
@@ -252,10 +252,10 @@ export default function DashboardPage() {
 
           await supabase
             .from("scenes")
-            .update({ imageUrl })
+            .update({ image_url: imageUrl })
             .eq("id", sceneInsert.id);
 
-          return { ...sceneInsert, imageUrl };
+          return { ...sceneInsert, image_url: imageUrl };
         } catch (err) {
           console.error(err);
           return null;
@@ -359,12 +359,12 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-3 gap-4 mt-4">
                   {activeChat.scenes.map(scene => (
                     <div key={scene.id} className="border rounded overflow-hidden">
-                      {scene.imageUrl ? (
-                        <img src={scene.imageUrl} alt={scene.scenePrompt} className="w-full h-40 object-cover" />
+                      {scene.image_url ? (
+                        <img src={scene.image_url} alt={scene.scene_prompt} className="w-full h-40 object-cover" />
                       ) : (
                         <div className="h-40 w-full bg-gray-200 flex items-center justify-center">Loading...</div>
                       )}
-                      <div className="p-2 text-sm">{scene.scenePrompt}</div>
+                      <div className="p-2 text-sm">{scene.scene_prompt}</div>
                     </div>
                   ))}
                 </div>

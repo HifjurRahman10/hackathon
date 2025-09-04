@@ -5,10 +5,9 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
 const supabase = createClient(
   process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // Service key to bypass RLS
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 const SceneSchema = z.object({
@@ -18,29 +17,35 @@ const SceneSchema = z.object({
   characterDescription: z.string().optional(),
 });
 
+const MessageSchema = z.object({
+  role: z.string(),
+  content: z.string(),
+});
+
 export async function POST(req: Request) {
   try {
     const raw = await req.json().catch(() => null);
     if (!raw) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-    let { chatId, messages, numScenes, systemPrompt } = raw;
+    let { chatId, messages, numScenes, systemPrompt } = raw as any;
 
-    if (typeof chatId === "string") {
-      const n = Number(chatId);
-      if (!Number.isNaN(n)) chatId = n;
-    }
-    if (!chatId || typeof chatId !== "number" || chatId <= 0) {
+    if (typeof chatId !== "string" || !chatId.trim()) {
       return NextResponse.json({ error: "`chatId` is required" }, { status: 400 });
     }
+    chatId = chatId.trim();
 
-    if (!messages || !Array.isArray(messages)) {
+    if (!Array.isArray(messages)) {
       return NextResponse.json({ error: "`messages` must be an array" }, { status: 400 });
     }
-    if (!numScenes || typeof numScenes !== "number" || numScenes < 1) {
+    const parsedMessages = z.array(MessageSchema).safeParse(messages);
+    if (!parsedMessages.success) {
+      return NextResponse.json({ error: "`messages` elements must include { role, content }" }, { status: 400 });
+    }
+
+    if (typeof numScenes !== "number" || numScenes < 1) {
       return NextResponse.json({ error: "`numScenes` must be a positive number" }, { status: 400 });
     }
 
-    // --- Get chat owner from DB ---
     const { data: chatOwner, error: chatErr } = await supabase
       .from("chats")
       .select("user_id")
@@ -51,12 +56,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Chat not found" }, { status: 404 });
     }
 
-    const userId = chatOwner.user_id; // Trust the DB
-
-    // --- System prompt ---
-    const fullSystemPrompt =
-      systemPrompt ||
-      `You are StoryMaker AI, a master storyteller and visual designer.
+    // Build system prompt
+    const finalSystemPrompt = systemPrompt || `
+You are StoryMaker AI, a master storyteller and visual designer.
 Your task is to create a full-length story divided into ${numScenes} sequential scenes based on the user's prompt.
 
 Rules for Character Consistency:
@@ -81,55 +83,49 @@ Output Format (JSON Array):
   {
     "sceneNumber": 1,
     "scenePrompt": "Short narrative for scene 1",
-    "sceneImagePrompt": "Expanded visual description for AI image generation, include characters naturally",
-    "characterDescription": "Detailed descriptions of all characters introduced in this scene"
+    "sceneImagePrompt": "Expanded visual description ...",
+    "characterDescription": "Detailed descriptions..."
   },
-  {
-    "sceneNumber": 2,
-    "scenePrompt": "Short narrative for scene 2",
-    "sceneImagePrompt": "Expanded visual description for AI image generation, include characters as per characterDescription from scene 1"
-  },
-  ...
-  {
-    "sceneNumber": ${numScenes},
-    "scenePrompt": "Short narrative for scene ${numScenes}",
-    "sceneImagePrompt": "Expanded visual description for AI image generation, maintain character consistency with characterDescription from scene 1"
-  }
+  { ... }, ..., { "sceneNumber": ${numScenes}, ... }
 ]`;
 
-    const fullInput = [{ role: "system", content: fullSystemPrompt }, ...messages];
+    // Combine user messages into a single prompt
+    const combinedUserMessages = parsedMessages.data
+      .map((m: any) => `${m.role}: ${m.content}`)
+      .join("\n");
 
-    // --- Call OpenAI ---
-    const response = await openai.responses.create({
+    const openaiResponse = await openai.responses.create({
       model: "gpt-5-nano",
-      input: fullInput,
+      instructions: finalSystemPrompt,
+      input: combinedUserMessages,
     });
 
-    const rawContent = response.output_text;
-    if (!rawContent) return NextResponse.json({ error: "No content from OpenAI" }, { status: 502 });
+    const rawOutput = openaiResponse.output_text;
+    if (!rawOutput) {
+      return NextResponse.json({ error: "No output from OpenAI" }, { status: 502 });
+    }
 
     let scenes;
     try {
-      scenes = z.array(SceneSchema).parse(JSON.parse(rawContent.trim()));
+      scenes = z.array(SceneSchema).parse(JSON.parse(rawOutput.trim()));
     } catch (err) {
-      console.error("❌ Failed to parse scenes:", err, "raw:", rawContent);
-      return NextResponse.json({ error: "Invalid scene JSON from OpenAI" }, { status: 502 });
+      console.error("Parsing scenes failed:", err, "raw:", rawOutput);
+      return NextResponse.json({ error: "Invalid JSON from OpenAI" }, { status: 502 });
     }
 
-    // --- Insert scenes into Supabase ---
     for (const scene of scenes) {
       await supabase.from("scenes").insert({
         chat_id: chatId,
         scene_number: scene.sceneNumber,
         scene_prompt: scene.scenePrompt,
         scene_image_prompt: scene.sceneImagePrompt,
-        character_description: scene.characterDescription || null,
+        character_description: scene.characterDescription ?? null,
       });
     }
 
-    return NextResponse.json({ systemPrompt: fullSystemPrompt, scenes });
+    return NextResponse.json({ systemPrompt: finalSystemPrompt, scenes });
   } catch (err: any) {
-    console.error("❌ Chat route error:", err);
+    console.error("Chat route error:", err);
     return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
   }
 }

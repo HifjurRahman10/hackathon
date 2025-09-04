@@ -50,6 +50,19 @@ export default function DashboardPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Debug logging for chat IDs
+  useEffect(() => {
+    console.log("Current chats with IDs:", chats.map(chat => ({
+      id: chat.id,
+      idType: typeof chat.id,
+      title: chat.title
+    })));
+    
+    if (activeChatId) {
+      console.log("Active chat ID:", activeChatId, "Type:", typeof activeChatId);
+    }
+  }, [chats, activeChatId]);
+
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -92,8 +105,11 @@ export default function DashboardPage() {
         .order("created_at", { ascending: false });
 
       if (chatData) {
+        console.log("Fetched chats from database:", chatData); // Debug log
+        
         const savedInputs: Record<string, string> = {};
         chatData.forEach((c: any) => {
+          console.log("Processing chat:", c.id, "Type:", typeof c.id); // Debug log
           savedInputs[c.id] = "";
           // Sort messages and scenes by creation time
           c.messages = c.messages.sort((a: any, b: any) => 
@@ -174,6 +190,9 @@ export default function DashboardPage() {
         .select()
         .single();
 
+      console.log("New chat created:", newChat); // Debug log
+      console.log("New chat ID type:", typeof newChat?.id); // Debug log
+
       if (newChat) {
         setChats((prev) => [{ ...newChat, messages: [], scenes: [] }, ...prev]);
         setActiveChatId(newChat.id);
@@ -231,12 +250,13 @@ export default function DashboardPage() {
 
       // Prepare chat API request
       const requestBody = {
-        chatId: chat.id,
+        chatId: chat.id, // This should be a UUID string
         messages: [...chat.messages.map(m => ({ role: m.role, content: m.content })), { role: "user", content: messageInput }],
         numScenes: numScenes,
       };
       
       console.log("Sending to chat API:", requestBody);
+      console.log("Chat ID being sent:", chat.id, "Type:", typeof chat.id); // Debug log
 
       // Call the chat API to generate proper scene prompts
       const chatResponse = await fetch("/api/chat", {

@@ -37,9 +37,14 @@ export async function POST(req: Request) {
 
     console.log("Extracted values:", { chatId, messages, numScenes, systemPrompt });
 
+    // Convert chatId to string if it's a number, and validate it exists
+    if (typeof chatId === "number") {
+      chatId = chatId.toString();
+    }
+    
     if (typeof chatId !== "string" || !chatId.trim()) {
       console.error("chatId validation failed:", { chatId, type: typeof chatId });
-      return NextResponse.json({ error: "`chatId` is required and must be a non-empty string" }, { status: 400 });
+      return NextResponse.json({ error: "`chatId` is required and must be a non-empty string or number" }, { status: 400 });
     }
     chatId = chatId.trim();
 
@@ -78,8 +83,8 @@ Rules for Character Consistency:
 5. New characters can be introduced later, but once introduced, they must remain consistent as well.
 
 Scene Requirements:
-1. Each scene must advance the story – action, emotion, and character development.
-2. Each scene must engage the reader – vivid, immersive storytelling.
+1. Each scene must advance the story — action, emotion, and character development.
+2. Each scene must engage the reader — vivid, immersive storytelling.
 3. Each scene must include:
    - "scenePrompt": A short narrative description of the scene.
    - "sceneImagePrompt": An expanded visual description suitable for AI image generation.
@@ -103,9 +108,9 @@ Output Format (JSON Array):
       .map((m: any) => `${m.role}: ${m.content}`)
       .join("\n");
 
-    // Use chat completions instead of the deprecated responses API
+    // KEEPING YOUR ORIGINAL OPENAI CALL - Using the responses API as you requested
     const openaiResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Use a valid model
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",

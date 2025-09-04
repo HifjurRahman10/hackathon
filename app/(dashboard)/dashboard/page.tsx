@@ -410,107 +410,111 @@ export default function DashboardPage() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
-        <ScrollArea className="flex-1 p-4 space-y-4">
-          {activeChat ? (
-            <>
-              {getChatContent(activeChat).map((item, index) => {
-                if (item.type === 'message') {
-                  const msg = item.data as Message;
-                  return (
-                    <Card key={`msg-${msg.id}`} className={`p-4 ${msg.role === "user" ? "bg-blue-50 border-blue-200" : "bg-gray-100"}`}>
-                      <CardContent className="p-0">
-                        <div className="flex items-start gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold ${msg.role === "user" ? "bg-blue-500" : "bg-gray-500"}`}>
-                            {msg.role === "user" ? "U" : "AI"}
-                          </div>
-                          <div className="flex-1">
-                            <div className="text-sm text-gray-600 mb-1">
-                              {msg.role === "user" ? "You" : "Assistant"} • {new Date(msg.created_at).toLocaleTimeString()}
-                            </div>
-                            <div className="text-gray-900">{msg.content}</div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                } else {
-                  const scene = item.data as Scene;
-                  return (
-                    <Card key={`scene-${scene.id}`} className="p-4 bg-purple-50 border-purple-200">
-                      <CardContent className="p-0">
-                        <div className="flex items-start gap-4">
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center bg-purple-500 text-white text-sm font-semibold">
-                            {scene.scene_number}
-                          </div>
-                          <div className="flex-1">
-                            <div className="text-sm text-gray-600 mb-2">
-                              Scene {scene.scene_number} • {new Date(scene.created_at).toLocaleTimeString()}
-                            </div>
-                            <div className="grid md:grid-cols-2 gap-4">
-                              <div>
-                                <h4 className="font-semibold text-purple-800 mb-2">Story</h4>
-                                <p className="text-gray-900 text-sm leading-relaxed">{scene.scene_prompt}</p>
+      <div className="flex-1 flex flex-col max-h-screen">
+        <div className="flex-1 overflow-hidden">
+          <ScrollArea className="h-full">
+            <div className="p-4 space-y-4">
+              {activeChat ? (
+                <>
+                  {getChatContent(activeChat).map((item, index) => {
+                    if (item.type === 'message') {
+                      const msg = item.data as Message;
+                      return (
+                        <Card key={`msg-${msg.id}`} className={`p-4 ${msg.role === "user" ? "bg-blue-50 border-blue-200" : "bg-gray-100"}`}>
+                          <CardContent className="p-0">
+                            <div className="flex items-start gap-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold ${msg.role === "user" ? "bg-blue-500" : "bg-gray-500"}`}>
+                                {msg.role === "user" ? "U" : "AI"}
                               </div>
-                              <div>
-                                <h4 className="font-semibold text-purple-800 mb-2">Visual</h4>
-                                {scene.image_url ? (
-                                  <img 
-                                    src={scene.image_url} 
-                                    alt={`Scene ${scene.scene_number}`}
-                                    className="w-full h-48 object-cover rounded-lg shadow-sm"
-                                  />
-                                ) : (
-                                  <div className="w-full h-48 bg-gray-200 rounded-lg flex items-center justify-center text-gray-500">
-                                    {loadingScenes[activeChat.id] ? "Generating..." : "Loading..."}
+                              <div className="flex-1">
+                                <div className="text-sm text-gray-600 mb-1">
+                                  {msg.role === "user" ? "You" : "Assistant"} • {new Date(msg.created_at).toLocaleTimeString()}
+                                </div>
+                                <div className="text-gray-900">{msg.content}</div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    } else {
+                      const scene = item.data as Scene;
+                      return (
+                        <Card key={`scene-${scene.id}`} className="p-4 bg-purple-50 border-purple-200">
+                          <CardContent className="p-0">
+                            <div className="flex items-start gap-4">
+                              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-purple-500 text-white text-sm font-semibold">
+                                {scene.scene_number}
+                              </div>
+                              <div className="flex-1">
+                                <div className="text-sm text-gray-600 mb-2">
+                                  Scene {scene.scene_number} • {new Date(scene.created_at).toLocaleTimeString()}
+                                </div>
+                                <div className="grid md:grid-cols-2 gap-4">
+                                  <div>
+                                    <h4 className="font-semibold text-purple-800 mb-2">Story</h4>
+                                    <p className="text-gray-900 text-sm leading-relaxed">{scene.scene_prompt}</p>
+                                  </div>
+                                  <div>
+                                    <h4 className="font-semibold text-purple-800 mb-2">Visual</h4>
+                                    {scene.image_url ? (
+                                      <img 
+                                        src={scene.image_url} 
+                                        alt={`Scene ${scene.scene_number}`}
+                                        className="w-full h-auto max-h-64 object-contain rounded-lg shadow-sm bg-white"
+                                      />
+                                    ) : (
+                                      <div className="w-full h-48 bg-gray-200 rounded-lg flex items-center justify-center text-gray-500">
+                                        {loadingScenes[activeChat.id] ? "Generating..." : "Loading..."}
+                                      </div>
+                                    )}
+                                    <p className="text-xs text-gray-600 mt-2 italic">{scene.scene_image_prompt}</p>
+                                  </div>
+                                </div>
+                                {scene.character_description && (
+                                  <div className="mt-3 pt-3 border-t border-purple-200">
+                                    <h4 className="font-semibold text-purple-800 mb-1 text-sm">Characters</h4>
+                                    <p className="text-xs text-gray-700">{scene.character_description}</p>
                                   </div>
                                 )}
-                                <p className="text-xs text-gray-600 mt-2 italic">{scene.scene_image_prompt}</p>
                               </div>
                             </div>
-                            {scene.character_description && (
-                              <div className="mt-3 pt-3 border-t border-purple-200">
-                                <h4 className="font-semibold text-purple-800 mb-1 text-sm">Characters</h4>
-                                <p className="text-xs text-gray-700">{scene.character_description}</p>
-                              </div>
-                            )}
+                          </CardContent>
+                        </Card>
+                      );
+                    }
+                  })}
+
+                  {/* Loading indicator for scenes */}
+                  {loadingScenes[activeChat.id] && (
+                    <Card className="p-4 bg-yellow-50 border-yellow-200">
+                      <CardContent className="p-0">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center bg-yellow-500 text-white text-sm font-semibold animate-pulse">
+                            AI
+                          </div>
+                          <div>
+                            <div className="text-sm text-yellow-800 font-medium">Generating story scenes...</div>
+                            <div className="text-xs text-yellow-600">Creating {numScenes} scenes with images</div>
                           </div>
                         </div>
                       </CardContent>
                     </Card>
-                  );
-                }
-              })}
+                  )}
 
-              {/* Loading indicator for scenes */}
-              {loadingScenes[activeChat.id] && (
-                <Card className="p-4 bg-yellow-50 border-yellow-200">
-                  <CardContent className="p-0">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center bg-yellow-500 text-white text-sm font-semibold animate-pulse">
-                        AI
-                      </div>
-                      <div>
-                        <div className="text-sm text-yellow-800 font-medium">Generating story scenes...</div>
-                        <div className="text-xs text-yellow-600">Creating {numScenes} scenes with images</div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                  <div ref={messagesEndRef} />
+                </>
+              ) : (
+                <div className="p-4 text-gray-500 text-center">
+                  <div className="max-w-md mx-auto">
+                    <h3 className="text-lg font-semibold mb-2">Welcome to StoryMaker AI</h3>
+                    <p className="mb-4">Create immersive stories with AI-generated scenes and images. Select or create a chat to start your storytelling journey.</p>
+                    <Button onClick={() => createNewChat()}>Start New Story</Button>
+                  </div>
+                </div>
               )}
-
-              <div ref={messagesEndRef} />
-            </>
-          ) : (
-            <div className="p-4 text-gray-500 text-center">
-              <div className="max-w-md mx-auto">
-                <h3 className="text-lg font-semibold mb-2">Welcome to StoryMaker AI</h3>
-                <p className="mb-4">Create immersive stories with AI-generated scenes and images. Select or create a chat to start your storytelling journey.</p>
-                <Button onClick={() => createNewChat()}>Start New Story</Button>
-              </div>
             </div>
-          )}
-        </ScrollArea>
+          </ScrollArea>
+        </div>
 
         {/* Input */}
         {activeChat && (

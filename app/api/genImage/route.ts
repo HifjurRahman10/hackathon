@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const bucket = "images";
+    const bucket = "user_uploads";
     await ensureBucket(bucket);
 
     const fileName = `${sceneNumber}_${Date.now()}.png`;

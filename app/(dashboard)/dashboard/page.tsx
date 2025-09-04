@@ -229,22 +229,32 @@ export default function DashboardPage() {
 
       setInputs(prev => ({ ...prev, [chat.id]: "" }));
 
+      // Prepare chat API request
+      const requestBody = {
+        chatId: chat.id,
+        messages: [...chat.messages.map(m => ({ role: m.role, content: m.content })), { role: "user", content: messageInput }],
+        numScenes: numScenes,
+      };
+      
+      console.log("Sending to chat API:", requestBody);
+
       // Call the chat API to generate proper scene prompts
       const chatResponse = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chatId: chat.id,
-          messages: [...chat.messages.map(m => ({ role: m.role, content: m.content })), { role: "user", content: messageInput }],
-          numScenes: numScenes,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
+      console.log("Chat API response status:", chatResponse.status);
+      
       if (!chatResponse.ok) {
-        throw new Error("Failed to generate scenes");
+        const errorData = await chatResponse.json();
+        console.error("Chat API error:", errorData);
+        throw new Error(`Failed to generate scenes: ${errorData.error || 'Unknown error'}`);
       }
 
       const { scenes } = await chatResponse.json();
+      console.log("Generated scenes:", scenes);
 
       // Fetch the newly created scenes from the database to get their IDs
       const { data: createdScenes } = await supabase
@@ -263,9 +273,11 @@ export default function DashboardPage() {
           )
         );
 
-        // Now generate images for each scene using the proper prompts
+        // Generate images for all scenes in parallel
         const imagePromises = createdScenes.map(async (scene: Scene) => {
           try {
+            console.log(`Generating image for scene ${scene.scene_number} with prompt:`, scene.scene_image_prompt);
+            
             const response = await fetch("/api/genImage", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -277,10 +289,16 @@ export default function DashboardPage() {
               }),
             });
 
-            if (!response.ok) return scene;
+            if (!response.ok) {
+              const errorData = await response.json();
+              console.error(`Image generation failed for scene ${scene.scene_number}:`, errorData);
+              return scene;
+            }
+            
             const { imageUrl } = await response.json();
+            console.log(`Generated image for scene ${scene.scene_number}:`, imageUrl);
 
-            // Update the scene with the image URL
+            // Update the scene with the image URL in database
             await supabase
               .from("scenes")
               .update({ image_url: imageUrl })
@@ -293,7 +311,9 @@ export default function DashboardPage() {
           }
         });
 
+        // Wait for all image generations to complete
         const updatedScenes = await Promise.all(imagePromises);
+        console.log("All images generated:", updatedScenes);
 
         // Update local state with the image URLs
         setChats(prev =>
@@ -306,7 +326,9 @@ export default function DashboardPage() {
       }
 
     } catch (err) {
-      console.error(err);
+      console.error("Error in sendMessage:", err);
+      // You might want to show this error to the user
+      alert(`Error: ${err instanceof Error ? err.message : 'Unknown error occurred'}`);
     } finally {
       setLoading(false);
       setLoadingScenes((prev) => ({ ...prev, [activeChatId!]: false }));

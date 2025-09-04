@@ -44,6 +44,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [renamingChat, setRenamingChat] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [loadingScenes, setLoadingScenes] = useState<Record<string, boolean>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -176,6 +177,7 @@ export default function DashboardPage() {
     if (!messageInput) return;
 
     setLoading(true);
+    setLoadingScenes((prev) => ({ ...prev, [activeChatId]: true }));
 
     try {
       const { data: { user: authUser } } = await supabase.auth.getUser();
@@ -200,13 +202,12 @@ export default function DashboardPage() {
           user_id: localUser.id,
           role: "user",
           content: messageInput,
-        } as any)
+        })
         .select()
         .single();
 
       if (!userMsg) throw new Error("Failed to insert message");
 
-      // Update local state immediately
       setChats(prev =>
         prev.map(c =>
           c.id === chat.id ? { ...c, messages: [...c.messages, userMsg] } : c
@@ -215,11 +216,11 @@ export default function DashboardPage() {
 
       setInputs(prev => ({ ...prev, [chat.id]: "" }));
 
-      // Generate scenes
-      for (let i = 1; i <= numScenes; i++) {
+      // Parallel scene generation
+      const scenePromises = Array.from({ length: numScenes }, (_, i) => i + 1).map(async (i) => {
         const scenePrompt = `${messageInput} (Scene ${i})`;
 
-        // Insert scene first
+        // Insert scene
         const { data: sceneInsert } = await supabase
           .from("scenes")
           .insert({
@@ -227,34 +228,55 @@ export default function DashboardPage() {
             sceneNumber: i,
             scenePrompt,
             sceneImagePrompt: scenePrompt,
-          } as any)
+          })
           .select()
           .single();
 
-        if (!sceneInsert) continue;
+        if (!sceneInsert) return null;
 
         // Call image generation API
-        const response = await fetch("/api/genImage", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: scenePrompt, sceneId: sceneInsert.id }),
-        });
+        try {
+          const response = await fetch("/api/genImage", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prompt: scenePrompt,
+              chatId: chat.id,
+              sceneNumber: i,
+              userId: localUser.id,
+            }),
+          });
 
-        if (!response.ok) continue;
-        const { imageUrl } = await response.json();
+          if (!response.ok) return null;
+          const { imageUrl } = await response.json();
 
-        // Update scene with imageUrl
-        await supabase
-          .from("scenes")
-          .update({ imageUrl })
-          .eq("id", sceneInsert.id);
-      }
+          await supabase
+            .from("scenes")
+            .update({ imageUrl })
+            .eq("id", sceneInsert.id);
 
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+          return { ...sceneInsert, imageUrl };
+        } catch (err) {
+          console.error(err);
+          return null;
+        }
+      });
+
+      const scenes = await Promise.all(scenePromises);
+
+      setChats(prev =>
+        prev.map(c =>
+          c.id === chat.id
+            ? { ...c, scenes: [...c.scenes, ...scenes.filter(Boolean) as Scene[]] }
+            : c
+        )
+      );
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
+      setLoadingScenes((prev) => ({ ...prev, [activeChatId!]: false }));
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   };
 
@@ -290,103 +312,87 @@ export default function DashboardPage() {
               className={`p-3 cursor-pointer flex justify-between items-center rounded hover:bg-gray-100 transition ${activeChatId === chat.id ? "bg-blue-50 border-l-4 border-blue-500" : ""}`}
               onClick={() => setActiveChatId(chat.id)}
             >
-              <div className="flex-1 truncate">
-                {renamingChat === chat.id ? (
-                  <div className="flex gap-2">
-                    <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus className="w-full"/>
-                    <Button onClick={() => handleRenameChat(chat.id)}>Save</Button>
-                  </div>
-                ) : (
-                  <span className="truncate">{chat.title}</span>
-                )}
-              </div>
-              {renamingChat !== chat.id && (
-                <div className="relative group">
-                  <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100 transition">⋮</Button>
-                  <div className="absolute right-0 mt-1 w-32 bg-white border rounded shadow-lg opacity-0 group-hover:opacity-100 transition">
-                    <button className="w-full p-2 text-left hover:bg-gray-100" onClick={() => { setRenamingChat(chat.id); setRenameValue(chat.title); }}>Rename</button>
-                    <button className="w-full p-2 text-left hover:bg-gray-100" onClick={() => handleDeleteChat(chat.id)}>Delete</button>
-                  </div>
+              {renamingChat === chat.id ? (
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    className="w-32"
+                  />
+                  <Button size="sm" onClick={() => handleRenameChat(chat.id)}>Save</Button>
                 </div>
+              ) : (
+                <>
+                  <span className="truncate">{chat.title}</span>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setRenamingChat(chat.id); setRenameValue(chat.title); }}>Rename</Button>
+                    <Button size="sm" variant="destructive" onClick={(e) => { e.stopPropagation(); handleDeleteChat(chat.id); }}>Del</Button>
+                  </div>
+                </>
               )}
             </div>
           ))}
         </ScrollArea>
       </div>
 
-      {/* Main */}
-      <div className="flex-1 flex flex-col relative">
-        {/* Header */}
-        <div className="flex justify-between items-center p-4 border-b bg-white">
-          <h2 className="font-semibold text-lg">{activeChat?.title || "Select a chat"}</h2>
-          <Input type="number" min={1} max={99} value={numScenes} onChange={(e) => {
-            let val = e.target.value.trim();
-            if (/^0+/.test(val)) val = String(Number(val));
-            const num = Number(val);
-            if (!isNaN(num) && num >= 1 && num <= 99) setNumScenes(num);
-          }} className="w-20"/>
-        </div>
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col">
+        <ScrollArea className="flex-1 p-4 space-y-4">
+          {activeChat ? (
+            <>
+              {activeChat.messages.map(msg => (
+                <Card key={msg.id} className={`p-2 ${msg.role === "user" ? "bg-blue-50" : "bg-gray-100"}`}>
+                  <CardContent>
+                    {msg.content}
+                  </CardContent>
+                </Card>
+              ))}
 
-        {/* Chat & Scenes */}
-        <ScrollArea className="flex-1 p-4 space-y-4 overflow-y-auto flex flex-col justify-end">
-          {activeChat?.messages?.length ? (
-            activeChat.messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`px-4 py-2 max-w-xs break-words transition-all ${msg.role === "user" ? "bg-blue-600 text-white rounded-xl" : "bg-gray-100 text-gray-900 rounded-xl"}`}>
-                  {msg.content}
+              {/* Scenes */}
+              {loadingScenes[activeChat.id] ? (
+                <div className="grid grid-cols-3 gap-4 mt-4">
+                  {Array.from({ length: numScenes }).map((_, i) => (
+                    <div key={i} className="h-40 w-full bg-gray-200 animate-pulse rounded" />
+                  ))}
                 </div>
-              </div>
-            ))
+              ) : (
+                <div className="grid grid-cols-3 gap-4 mt-4">
+                  {activeChat.scenes.map(scene => (
+                    <div key={scene.id} className="border rounded overflow-hidden">
+                      {scene.imageUrl ? (
+                        <img src={scene.imageUrl} alt={scene.scenePrompt} className="w-full h-40 object-cover" />
+                      ) : (
+                        <div className="h-40 w-full bg-gray-200 flex items-center justify-center">Loading...</div>
+                      )}
+                      <div className="p-2 text-sm">{scene.scenePrompt}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </>
           ) : (
-            <div className="flex-1 flex items-center justify-center text-gray-400">
-              Start by creating a new chat or selecting one
-            </div>
+            <div className="p-4 text-gray-500">Select or create a chat to start messaging.</div>
           )}
-
-          {activeChat?.scenes?.map(scene => (
-            <Card key={scene.sceneNumber}>
-              <CardContent>
-                <p className="font-semibold mb-2">Scene {scene.sceneNumber}</p>
-                <p className="mb-2">{scene.scenePrompt}</p>
-                {scene.imageUrl ? (
-                  <img src={scene.imageUrl} alt={`Scene ${scene.sceneNumber}`} className="rounded-lg border"/>
-                ) : (
-                  <p className="italic text-gray-400">Image generating...</p>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-
-          <div ref={messagesEndRef}/>
         </ScrollArea>
 
         {/* Input */}
-        <div className="w-full flex justify-center p-4 border-t bg-white">
-          <div className="flex items-end gap-2 w-full max-w-3xl">
+        {activeChat && (
+          <div className="p-4 border-t flex gap-2">
             <TextareaAutosize
               minRows={1}
-              maxRows={6}
-              className="flex-1 resize-none px-4 py-3 rounded-md border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none placeholder-gray-400 text-gray-900 shadow-sm overflow-auto"
-              placeholder={activeChat ? "Write your story..." : "Start by creating a chat..."}
-              value={activeChatId ? inputs[activeChatId] : ""}
+              maxRows={4}
+              value={inputs[activeChat.id] || ""}
               onChange={(e) => handleInputChange(e.target.value)}
-              disabled={loading}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  sendMessage();
-                }
-              }}
+              className="flex-1 border rounded p-2 resize-none"
+              placeholder="Type your message..."
             />
-            <Button
-              onClick={sendMessage}
-              disabled={!activeChatId || !inputs[activeChatId]?.trim() || loading}
-              className="flex-shrink-0 px-6 py-3 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-md transition"
-            >
-              Send
+            <Button onClick={sendMessage} disabled={loading}>
+              {loading ? "Sending..." : "Send"}
             </Button>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

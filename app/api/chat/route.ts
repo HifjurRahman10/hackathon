@@ -28,23 +28,14 @@ export async function POST(req: Request) {
       console.error("JSON parse error:", e);
       return null;
     });
-    
-    console.log("Raw request body:", raw);
-    
+
     if (!raw) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
     let { chatId, messages, numScenes, systemPrompt } = raw as any;
 
-    console.log("Extracted values:", { chatId, messages, numScenes, systemPrompt });
-
-    // Convert chatId to string if it's a number, and validate it exists
-    if (typeof chatId === "number") {
-      chatId = chatId.toString();
-    }
-    
-    if (typeof chatId !== "string" || !chatId.trim()) {
-      console.error("chatId validation failed:", { chatId, type: typeof chatId });
-      return NextResponse.json({ error: "`chatId` is required and must be a non-empty string or number" }, { status: 400 });
+    if (typeof chatId === "number") chatId = chatId.toString();
+    if (!chatId?.trim()) {
+      return NextResponse.json({ error: "`chatId` is required" }, { status: 400 });
     }
     chatId = chatId.trim();
 
@@ -66,69 +57,82 @@ export async function POST(req: Request) {
       .eq("id", chatId)
       .single();
 
-    if (chatErr || !chatOwner) {
-      return NextResponse.json({ error: "Chat not found" }, { status: 404 });
-    }
+    if (chatErr || !chatOwner) return NextResponse.json({ error: "Chat not found" }, { status: 404 });
 
-    // Build system prompt
-    const finalSystemPrompt = systemPrompt || `
-You are StoryMaker AI, a master storyteller and visual designer.
-Your task is to create a full-length story divided into ${numScenes} sequential scenes based on the user's prompt.
+    // Detailed system prompt
+    const detailedSystemPrompt =
+      systemPrompt ||`
+You are StoryMaker AI, a world-class storyteller and visual designer. 
+Your task is to generate a story in ${numScenes} sequential scenes, based on the user's messages. Follow all rules strictly.
 
-Rules for Character Consistency:
-1. Characters should be invented naturally in the first scene.
-2. For the first scene, include a detailed "characterDescription" for every character introduced. Describe their appearance, clothing, distinctive traits, and any notable features.
-3. For all subsequent scenes, inject the "characterDescription" from the first scene into each sceneImagePrompt to ensure all characters remain visually consistent.
-4. Characters must not change appearance, clothing style, or key features across scenes.
-5. New characters can be introduced later, but once introduced, they must remain consistent as well.
+RULES FOR OUTPUT:
+1. You MUST return a **single JSON array only** — no text, no explanations, no apologies, no extra characters outside the array.
+2. Each array element must be an object with the following keys:
+   - "sceneNumber": integer, the scene order starting from 1
+   - "scenePrompt": short narrative description of the scene (3-5 sentences, vivid, immersive, and engaging)
+   - "sceneImagePrompt": detailed visual prompt for AI image generation including:
+       - Characters (appearance, clothing, expressions, poses)
+       - Setting, environment, mood, lighting, perspective
+       - Props and key objects in the scene
+       - Ensure continuity across scenes
+   - "characterDescription": string describing all main characters (only for the first scene). Include:
+       - Names
+       - Physical appearance (height, hair, eyes, skin, distinguishing features)
+       - Clothing style
+       - Personality traits
+       - Any unique accessories or props
 
-Scene Requirements:
-1. Each scene must advance the story — action, emotion, and character development.
-2. Each scene must engage the reader — vivid, immersive storytelling.
-3. Each scene must include:
-   - "scenePrompt": A short narrative description of the scene.
-   - "sceneImagePrompt": An expanded visual description suitable for AI image generation.
-     - Include character descriptions for consistency (use the characterDescription from previous scenes).
-     - Ensure visual continuity in lighting, perspective, setting, props, and mood.
-   - "characterDescription": Only for the first scene, listing all main characters.
+CHARACTER CONSISTENCY RULES:
+1. Characters introduced in scene 1 must remain visually and narratively consistent in all following scenes.
+2. If new characters are introduced later, they must remain consistent for all subsequent scenes.
+3. Never change the clothing, hairstyle, or key features of a character once introduced.
 
-Output Format (JSON Array):
+SCENE RULES:
+1. Each scene must advance the story (action, emotion, character development).
+2. Scenes must be immersive, vivid, and creative.
+3. Each scene must feel like a logical continuation of the previous scene.
+4. Include appropriate interactions between characters and the environment.
+
+JSON EXAMPLE:
 [
   {
     "sceneNumber": 1,
-    "scenePrompt": "Short narrative for scene 1",
-    "sceneImagePrompt": "Expanded visual description ...",
-    "characterDescription": "Detailed descriptions..."
+    "scenePrompt": "The hero wakes up in a mysterious forest...",
+    "sceneImagePrompt": "A young man with messy brown hair, wearing a torn cloak, stands in a foggy, mystical forest with rays of sunlight breaking through the trees. His sword is strapped to his back, a small owl perched on his shoulder. The atmosphere is magical, ethereal, with scattered leaves and mist swirling around.",
+    "characterDescription": "Hero: brown hair, green eyes, 5'10\", lean build, wears a tattered cloak, brave and curious. Owl companion: small, white feathers, intelligent eyes, sits on hero's shoulder."
   },
-  { ... }, ..., { "sceneNumber": ${numScenes}, ... }
-]`;
+  {
+    "sceneNumber": 2,
+    "scenePrompt": "The hero encounters a strange glowing creature...",
+    "sceneImagePrompt": "The young man from scene 1 stands cautiously as a glowing, ethereal creature hovers in the misty forest. The hero's cloak flows, the owl watches intently. Soft rays of light illuminate the fog around them, creating a magical, suspenseful atmosphere."
+  }
+]
 
-    // Combine user messages into a single prompt
+ADDITIONAL INSTRUCTIONS:
+- Do not add any extra explanation, commentary, or notes outside of the JSON array.
+- Ensure all text is in valid JSON format. Escape quotes if necessary.
+- Each "sceneImagePrompt" must contain enough detail to be fed directly into an image generation model for realistic and consistent visual results.
+- Use creativity in storytelling but maintain clarity and character consistency.
+
+Remember: **Only return the JSON array. Nothing else.**
+`;
+
+    // Combine user messages
     const combinedUserMessages = parsedMessages.data
       .map((m: any) => `${m.role}: ${m.content}`)
       .join("\n");
 
-    // KEEPING YOUR ORIGINAL OPENAI CALL - Using the responses API as you requested
-    const openaiResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: finalSystemPrompt
-        },
-        {
-          role: "user", 
-          content: combinedUserMessages
-        }
+    // Responses API call
+    const response = await openai.responses.create({
+      model: "gpt-5-nano",
+      input: [
+        { role: "system", content: detailedSystemPrompt },
+        { role: "user", content: combinedUserMessages },
       ],
-      temperature: 0.7,
-      max_tokens: 4000,
     });
 
-    const rawOutput = openaiResponse.choices[0]?.message?.content;
-    if (!rawOutput) {
-      return NextResponse.json({ error: "No output from OpenAI" }, { status: 502 });
-    }
+    const rawOutput = response.output_text;
+    if (!rawOutput) return NextResponse.json({ error: "No output from OpenAI" }, { status: 502 });
 
     let scenes;
     try {
@@ -138,7 +142,7 @@ Output Format (JSON Array):
       return NextResponse.json({ error: "Invalid JSON from OpenAI", details: rawOutput }, { status: 502 });
     }
 
-    // Insert scenes into database
+    // Insert scenes into Supabase
     for (const scene of scenes) {
       const { error: insertError } = await supabase.from("scenes").insert({
         chat_id: chatId,
@@ -147,19 +151,12 @@ Output Format (JSON Array):
         scene_image_prompt: scene.sceneImagePrompt,
         character_description: scene.characterDescription ?? null,
       });
-
-      if (insertError) {
-        console.error("Error inserting scene:", insertError);
-        // Continue with other scenes even if one fails
-      }
+      if (insertError) console.error("Error inserting scene:", insertError);
     }
 
-    return NextResponse.json({ systemPrompt: finalSystemPrompt, scenes });
+    return NextResponse.json({ systemPrompt: detailedSystemPrompt, scenes });
   } catch (err: any) {
     console.error("Chat route error:", err);
-    return NextResponse.json({ 
-      error: err.message || "Internal server error",
-      details: err.stack 
-    }, { status: 500 });
+    return NextResponse.json({ error: err.message || "Internal server error", details: err.stack }, { status: 500 });
   }
 }

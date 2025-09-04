@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const supabase = createClient(
-  process.env.SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
@@ -24,13 +24,22 @@ const MessageSchema = z.object({
 
 export async function POST(req: Request) {
   try {
-    const raw = await req.json().catch(() => null);
+    const raw = await req.json().catch((e) => {
+      console.error("JSON parse error:", e);
+      return null;
+    });
+    
+    console.log("Raw request body:", raw);
+    
     if (!raw) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
     let { chatId, messages, numScenes, systemPrompt } = raw as any;
 
+    console.log("Extracted values:", { chatId, messages, numScenes, systemPrompt });
+
     if (typeof chatId !== "string" || !chatId.trim()) {
-      return NextResponse.json({ error: "`chatId` is required" }, { status: 400 });
+      console.error("chatId validation failed:", { chatId, type: typeof chatId });
+      return NextResponse.json({ error: "`chatId` is required and must be a non-empty string" }, { status: 400 });
     }
     chatId = chatId.trim();
 
@@ -69,8 +78,8 @@ Rules for Character Consistency:
 5. New characters can be introduced later, but once introduced, they must remain consistent as well.
 
 Scene Requirements:
-1. Each scene must advance the story — action, emotion, and character development.
-2. Each scene must engage the reader — vivid, immersive storytelling.
+1. Each scene must advance the story – action, emotion, and character development.
+2. Each scene must engage the reader – vivid, immersive storytelling.
 3. Each scene must include:
    - "scenePrompt": A short narrative description of the scene.
    - "sceneImagePrompt": An expanded visual description suitable for AI image generation.
@@ -94,13 +103,24 @@ Output Format (JSON Array):
       .map((m: any) => `${m.role}: ${m.content}`)
       .join("\n");
 
-    const openaiResponse = await openai.responses.create({
-      model: "gpt-5-nano",
-      instructions: finalSystemPrompt,
-      input: combinedUserMessages,
+    // Use chat completions instead of the deprecated responses API
+    const openaiResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini", // Use a valid model
+      messages: [
+        {
+          role: "system",
+          content: finalSystemPrompt
+        },
+        {
+          role: "user", 
+          content: combinedUserMessages
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 4000,
     });
 
-    const rawOutput = openaiResponse.output_text;
+    const rawOutput = openaiResponse.choices[0]?.message?.content;
     if (!rawOutput) {
       return NextResponse.json({ error: "No output from OpenAI" }, { status: 502 });
     }
@@ -110,22 +130,31 @@ Output Format (JSON Array):
       scenes = z.array(SceneSchema).parse(JSON.parse(rawOutput.trim()));
     } catch (err) {
       console.error("Parsing scenes failed:", err, "raw:", rawOutput);
-      return NextResponse.json({ error: "Invalid JSON from OpenAI" }, { status: 502 });
+      return NextResponse.json({ error: "Invalid JSON from OpenAI", details: rawOutput }, { status: 502 });
     }
 
+    // Insert scenes into database
     for (const scene of scenes) {
-      await supabase.from("scenes").insert({
+      const { error: insertError } = await supabase.from("scenes").insert({
         chat_id: chatId,
         scene_number: scene.sceneNumber,
         scene_prompt: scene.scenePrompt,
         scene_image_prompt: scene.sceneImagePrompt,
         character_description: scene.characterDescription ?? null,
       });
+
+      if (insertError) {
+        console.error("Error inserting scene:", insertError);
+        // Continue with other scenes even if one fails
+      }
     }
 
     return NextResponse.json({ systemPrompt: finalSystemPrompt, scenes });
   } catch (err: any) {
     console.error("Chat route error:", err);
-    return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });
+    return NextResponse.json({ 
+      error: err.message || "Internal server error",
+      details: err.stack 
+    }, { status: 500 });
   }
 }

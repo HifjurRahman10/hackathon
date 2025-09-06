@@ -77,9 +77,11 @@ export const scenes = pgTable('scenes', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   chatId: uuid('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
   sceneNumber: integer('scene_number').notNull(),
-  scenePrompt: text('scene_prompt'),
+  storySummary: text('story_summary'),
   sceneImagePrompt: text('scene_image_prompt'),
   characterDescription: text('character_description'),
+  characterImageUrl: text('character_image_url'),
+  sceneVideoPrompt: text('scene_video_prompt'),
   imageUrl: text('image_url'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });

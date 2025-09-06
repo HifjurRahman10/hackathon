@@ -45,6 +45,7 @@ export default async function PricingPage() {
           ]}
           priceId={plusPrice?.id}
         />
+        
       </div>
     </main>
   );

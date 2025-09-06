@@ -224,6 +224,7 @@ export default function DashboardPage() {
           role: "user",
           content: messageInput,
         })
+        
         .select()
         .single();
       if (!userMsg) throw new Error("Failed to insert message");

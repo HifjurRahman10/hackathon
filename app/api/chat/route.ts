@@ -72,7 +72,6 @@ export async function POST(req: Request) {
       model: "gpt-5-nano",
       input: [
         { role: "system", content: detailedSystemPrompt },
-        
         { role: "user", content: combinedUserMessages },
       ],
     });

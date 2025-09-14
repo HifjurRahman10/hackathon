@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
 
     // Unique path per user/chat/scene
     const fileName = `${sceneNumber}_${Date.now()}.png`;
+    
     const filePath = `${userId}/${chatId}/${fileName}`;
 
     // Optional: skip generation if file exists

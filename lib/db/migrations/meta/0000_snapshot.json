@@ -1,5 +1,5 @@
 {
-  "id": "792d52ba-fadf-4269-bada-a639f8ef8af7",
+  "id": "2f0a2e7c-9948-4100-b7b5-63fd820564f2",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -73,6 +73,71 @@
             "id"
           ],
           "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.characters": {
+      "name": "characters",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "character_name": {
+          "name": "character_name",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "character_image_prompt": {
+          "name": "character_image_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "character_image_url": {
+          "name": "character_image_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "characters_chat_id_chats_id_fk": {
+          "name": "characters_chat_id_chats_id_fk",
+          "tableFrom": "characters",
+          "tableTo": "chats",
+          "columnsFrom": [
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -298,6 +363,125 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.scene_characters": {
+      "name": "scene_characters",
+      "schema": "",
+      "columns": {
+        "scene_id": {
+          "name": "scene_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "character_id": {
+          "name": "character_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "scene_characters_scene_id_scenes_id_fk": {
+          "name": "scene_characters_scene_id_scenes_id_fk",
+          "tableFrom": "scene_characters",
+          "tableTo": "scenes",
+          "columnsFrom": [
+            "scene_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "scene_characters_character_id_characters_id_fk": {
+          "name": "scene_characters_character_id_characters_id_fk",
+          "tableFrom": "scene_characters",
+          "tableTo": "characters",
+          "columnsFrom": [
+            "character_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "scene_characters_scene_id_character_id_pk": {
+          "name": "scene_characters_scene_id_character_id_pk",
+          "columns": [
+            "scene_id",
+            "character_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.scene_environments": {
+      "name": "scene_environments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "chat_id": {
+          "name": "chat_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "environment_image_prompt": {
+          "name": "environment_image_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "environment_image_url": {
+          "name": "environment_image_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "scene_environments_chat_id_chats_id_fk": {
+          "name": "scene_environments_chat_id_chats_id_fk",
+          "tableFrom": "scene_environments",
+          "tableTo": "chats",
+          "columnsFrom": [
+            "chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.scenes": {
       "name": "scenes",
       "schema": "",
@@ -321,20 +505,14 @@
           "primaryKey": false,
           "notNull": true
         },
-        "scene_prompt": {
-          "name": "scene_prompt",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "scene_image_prompt": {
           "name": "scene_image_prompt",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "character_description": {
-          "name": "character_description",
+        "scene_video_prompt": {
+          "name": "scene_video_prompt",
           "type": "text",
           "primaryKey": false,
           "notNull": false

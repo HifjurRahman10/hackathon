@@ -1,13 +1,13 @@
+import { relations, sql } from 'drizzle-orm';
 import {
   pgTable,
-  serial,
   varchar,
   text,
   timestamp,
   integer,
   uuid,
+  primaryKey
 } from 'drizzle-orm/pg-core';
-import { relations, sql } from 'drizzle-orm';
 
 // -------------------- Users --------------------
 export const users = pgTable('users', {
@@ -77,14 +77,35 @@ export const scenes = pgTable('scenes', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   chatId: uuid('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
   sceneNumber: integer('scene_number').notNull(),
-  storySummary: text('story_summary'),
   sceneImagePrompt: text('scene_image_prompt'),
-  characterDescription: text('character_description'),
-  characterImageUrl: text('character_image_url'),
   sceneVideoPrompt: text('scene_video_prompt'),
   imageUrl: text('image_url'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
+
+export const characters = pgTable('characters', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  chatId: uuid('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
+  characterName: varchar('character_name', { length: 100 }).notNull(),
+  characterImagePrompt: text('character_image_prompt'),
+  characterImageUrl: text('character_image_url'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const sceneEnvironments = pgTable('scene_environments', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  chatId: uuid('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
+  environmentImagePrompt: text('environment_image_prompt'),
+  environmentImageUrl: text('environment_image_url'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const sceneCharacters = pgTable('scene_characters', {
+  sceneId: uuid('scene_id').notNull().references(() => scenes.id, { onDelete: 'cascade' }),
+  characterId: uuid('character_id').notNull().references(() => characters.id, { onDelete: 'cascade' }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.sceneId, table.characterId] })
+}));
 
 // -------------------- Activity Logs --------------------
 export const activityLogs = pgTable('activity_logs', {
@@ -153,11 +174,42 @@ export const messagesRelations = relations(messages, ({ one }) => ({
   }),
 }));
 
-export const scenesRelations = relations(scenes, ({ one }) => ({
+export const scenesRelations = relations(scenes, ({ one, many }) => ({
   chat: one(chats, {
     fields: [scenes.chatId],
     references: [chats.id],
   }),
+  characters: many(sceneCharacters),
+  environment: one(sceneEnvironments, {
+    fields: [scenes.chatId],
+    references: [sceneEnvironments.chatId]
+  })
+}));
+
+export const charactersRelations = relations(characters, ({ one, many }) => ({
+  chat: one(chats, {
+    fields: [characters.chatId],
+    references: [chats.id],
+  }),
+  scenes: many(sceneCharacters)
+}));
+
+export const sceneEnvironmentsRelations = relations(sceneEnvironments, ({ one }) => ({
+  chat: one(chats, {
+    fields: [sceneEnvironments.chatId],
+    references: [chats.id],
+  })
+}));
+
+export const sceneCharactersRelations = relations(sceneCharacters, ({ one }) => ({
+  scene: one(scenes, {
+    fields: [sceneCharacters.sceneId],
+    references: [scenes.id],
+  }),
+  character: one(characters, {
+    fields: [sceneCharacters.characterId],
+    references: [characters.id],
+  })
 }));
 
 export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
@@ -188,6 +240,8 @@ export type Scene = typeof scenes.$inferSelect;
 export type NewScene = typeof scenes.$inferInsert;
 export type ActivityLog = typeof activityLogs.$inferSelect;
 export type NewActivityLog = typeof activityLogs.$inferInsert;
+export type SceneCharacter = typeof sceneCharacters.$inferSelect;
+export type NewSceneCharacter = typeof sceneCharacters.$inferInsert;
 
 // -------------------- Enums --------------------
 export enum ActivityType {

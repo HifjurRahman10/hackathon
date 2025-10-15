@@ -1,1 +1,0 @@
-ALTER TABLE "scenes" DROP COLUMN "scene_prompt";

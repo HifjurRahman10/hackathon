@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { z } from "zod";
-import { supabase } from "@/lib/supabaseClient";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -71,20 +70,7 @@ Return only valid JSON:
     const text = response.output_text?.trim() || "{}";
     const data = JSON.parse(text);
 
-    const bucket = "your-bucket-name";
-    const filePath = `path/to/your/file/${data.image_url}`;
-
-    const { data: urlData } = supabase.storage
-      .from(bucket)
-      .getPublicUrl(filePath);
-
-    if (!urlData?.publicUrl) {
-      return NextResponse.json({ error: "Failed to get public URL" }, { status: 500 });
-    }
-
-    const imageUrl = urlData.publicUrl;
-
-    return NextResponse.json({ data, imageUrl });
+    return NextResponse.json({ data });
   } catch (err: any) {
     console.error("Chat API error:", err);
     return NextResponse.json(

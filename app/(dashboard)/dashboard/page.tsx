@@ -53,7 +53,14 @@ export default function DashboardPage() {
       if (chats && chats.length > 0) {
         setCurrentChatId(chats[0].id);
       } else {
-        await createNewChat();
+        const newChatRes = await fetch("/api/chats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: uid, title: "New Chat" }),
+        });
+        const { chat } = await newChatRes.json();
+        setChats([chat]);
+        setCurrentChatId(chat.id);
       }
     } catch (err) {
       console.error("Failed to load chats:", err);

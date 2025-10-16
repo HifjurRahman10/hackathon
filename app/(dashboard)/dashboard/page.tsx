@@ -74,6 +74,7 @@ export default function DashboardPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, title: "New Chat" }),
+        
       });
       const { chat } = await res.json();
       setChats([chat, ...chats]);
@@ -106,6 +107,11 @@ export default function DashboardPage() {
 
     if (!currentChatId) {
       await createNewChat();
+      return;
+    }
+
+    if (sceneImages.length > 0) {
+      setError("Only one prompt allowed per chat. Create a new chat to generate more.");
       return;
     }
 

@@ -10,11 +10,15 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Ensure Supabase bucket exists
+// Ensure Supabase bucket exists and is public
 async function ensureBucket(name: string) {
   const { data: buckets } = await supabase.storage.listBuckets();
-  if (!buckets?.some((b) => b.name === name)) {
-    await supabase.storage.createBucket(name, { public: false });
+  const existingBucket = buckets?.find((b) => b.name === name);
+  
+  if (!existingBucket) {
+    await supabase.storage.createBucket(name, { public: true });
+  } else if (!existingBucket.public) {
+    await supabase.storage.updateBucket(name, { public: true });
   }
 }
 

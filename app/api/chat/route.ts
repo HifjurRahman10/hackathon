@@ -59,12 +59,10 @@ Return only valid JSON:
 
     const response = await openai.responses.create({
       model: "gpt-5-nano",
-      reasoning: { effort: "medium" },
       input: [
         { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
-      temperature: 0.8,
     });
 
     const text = response.output_text?.trim() || "{}";

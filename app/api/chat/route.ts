@@ -26,8 +26,20 @@ const schema = z.object({
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { prompt, mode, userId, chatId, character } = schema.parse(body);
+    const { prompt, mode, userId: supabaseUserId, chatId, character } = schema.parse(body);
 
+    // Get local user ID from supabase_id
+    const { data: user } = await supabase
+      .from("users")
+      .select("id")
+      .eq("supabase_id", supabaseUserId)
+      .single();
+
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
+    const userId = user.id;
     let systemPrompt = "";
 
     if (mode === "character") {

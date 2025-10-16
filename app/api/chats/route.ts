@@ -9,16 +9,27 @@ const supabase = createClient(
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const userId = searchParams.get("userId");
+    const supabaseUserId = searchParams.get("userId");
 
-    if (!userId) {
+    if (!supabaseUserId) {
       return NextResponse.json({ error: "userId required" }, { status: 400 });
+    }
+
+    // Get local user ID from supabase_id
+    const { data: user } = await supabase
+      .from("users")
+      .select("id")
+      .eq("supabase_id", supabaseUserId)
+      .single();
+
+    if (!user) {
+      return NextResponse.json({ chats: [] });
     }
 
     const { data: chats, error } = await supabase
       .from("chats")
       .select("*")
-      .eq("user_id", userId)
+      .eq("user_id", user.id)
       .order("created_at", { ascending: false });
 
     if (error) throw error;
@@ -32,16 +43,27 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { userId, title } = await req.json();
+    const { userId: supabaseUserId, title } = await req.json();
 
-    if (!userId) {
+    if (!supabaseUserId) {
       return NextResponse.json({ error: "userId required" }, { status: 400 });
+    }
+
+    // Get local user ID from supabase_id
+    const { data: user } = await supabase
+      .from("users")
+      .select("id")
+      .eq("supabase_id", supabaseUserId)
+      .single();
+
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
     const { data: chat, error } = await supabase
       .from("chats")
       .insert({
-        user_id: userId,
+        user_id: user.id,
         title: title || "New Chat",
       })
       .select()

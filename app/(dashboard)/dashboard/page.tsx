@@ -19,6 +19,7 @@ export default function DashboardPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [hasExistingScenes, setHasExistingScenes] = useState(false);
 
   useEffect(() => {
     async function fetchUser() {
@@ -52,6 +53,7 @@ export default function DashboardPage() {
       setChats(chats || []);
       if (chats && chats.length > 0) {
         setCurrentChatId(chats[0].id);
+        await loadScenes(chats[0].id);
       } else {
         const newChatRes = await fetch("/api/chats", {
           method: "POST",
@@ -64,6 +66,27 @@ export default function DashboardPage() {
       }
     } catch (err) {
       console.error("Failed to load chats:", err);
+    }
+  }
+
+  async function loadScenes(chatId: string) {
+    try {
+      const res = await fetch(`/api/scenes?chatId=${chatId}`);
+      const { scenes } = await res.json();
+      if (scenes && scenes.length > 0) {
+        const imageUrls = scenes
+          .filter((s: any) => s.image_url)
+          .map((s: any) => s.image_url);
+        setSceneImages(imageUrls);
+        setHasExistingScenes(true);
+      } else {
+        setSceneImages([]);
+        setHasExistingScenes(false);
+      }
+    } catch (err) {
+      console.error("Failed to load scenes:", err);
+      setSceneImages([]);
+      setHasExistingScenes(false);
     }
   }
 
@@ -80,6 +103,7 @@ export default function DashboardPage() {
       setChats([chat, ...chats]);
       setCurrentChatId(chat.id);
       setSceneImages([]);
+      setHasExistingScenes(false);
       setPrompt("");
     } catch (err) {
       console.error("Failed to create chat:", err);
@@ -110,7 +134,7 @@ export default function DashboardPage() {
       return;
     }
 
-    if (sceneImages.length > 0) {
+    if (hasExistingScenes) {
       setError("Only one prompt allowed per chat. Create a new chat to generate more.");
       return;
     }
@@ -211,6 +235,7 @@ export default function DashboardPage() {
 
       // 5️⃣ Display Scene Images
       setSceneImages(sceneImages);
+      setHasExistingScenes(true);
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Something went wrong");
@@ -240,7 +265,10 @@ export default function DashboardPage() {
               className={`group flex items-center justify-between p-3 rounded-lg cursor-pointer hover:bg-gray-800 transition ${
                 currentChatId === chat.id ? "bg-gray-800" : ""
               }`}
-              onClick={() => setCurrentChatId(chat.id)}
+              onClick={() => {
+                setCurrentChatId(chat.id);
+                loadScenes(chat.id);
+              }}
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <MessageSquare className="w-4 h-4 flex-shrink-0" />

@@ -1,29 +1,47 @@
--- Enable RLS on storage.objects table
--- Create policy to allow public read access to user_upload bucket
+-- Storage RLS Policies for user_upload bucket
+-- This bucket is PRIVATE with RLS policies for user-specific access
 
--- First, ensure the bucket is public (this should be done via API or dashboard, but we document it here)
--- You must manually make the bucket public in Supabase dashboard or via API
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Public read access for user_upload" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated users can upload to user_upload" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete their own files" ON storage.objects;
 
--- Create policy for public read access to objects in user_upload bucket
-CREATE POLICY "Public read access for user_upload"
+-- Users can read their own files (path starts with their user ID)
+CREATE POLICY "Users can read own files in user_upload"
 ON storage.objects
 FOR SELECT
-USING ( bucket_id = 'user_upload' );
+USING (
+  bucket_id = 'user_upload'
+  AND auth.role() = 'authenticated'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+);
 
--- Optional: Create policy to allow authenticated users to upload
-CREATE POLICY "Authenticated users can upload to user_upload"
+-- Authenticated users can upload to their own folder
+CREATE POLICY "Users can upload to own folder in user_upload"
 ON storage.objects
 FOR INSERT
 WITH CHECK (
   bucket_id = 'user_upload' 
   AND auth.role() = 'authenticated'
+  AND (storage.foldername(name))[1] = auth.uid()::text
 );
 
--- Optional: Create policy to allow authenticated users to delete their own files
-CREATE POLICY "Users can delete their own files"
+-- Users can update their own files
+CREATE POLICY "Users can update own files in user_upload"
+ON storage.objects
+FOR UPDATE
+USING (
+  bucket_id = 'user_upload'
+  AND auth.role() = 'authenticated'
+  AND (storage.foldername(name))[1] = auth.uid()::text
+);
+
+-- Users can delete their own files
+CREATE POLICY "Users can delete own files in user_upload"
 ON storage.objects
 FOR DELETE
 USING (
   bucket_id = 'user_upload'
   AND auth.role() = 'authenticated'
+  AND (storage.foldername(name))[1] = auth.uid()::text
 );

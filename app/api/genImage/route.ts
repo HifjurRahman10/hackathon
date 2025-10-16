@@ -114,7 +114,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Get public URL (Supabase v2)
+    // Get public URL
     const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
     if (!urlData?.publicUrl) {
       return NextResponse.json(

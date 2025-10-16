@@ -7,7 +7,14 @@ export function sb() {
   if (!url || !anon) {
     throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY')
   }
-  return createBrowserClient(url, anon)
+  return createBrowserClient(url, anon, {
+    auth: {
+      persistSession: true,
+      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+      autoRefreshToken: true,
+      detectSessionInUrl: true
+    }
+  })
 }
 
 // Added named export expected by layout.tsx

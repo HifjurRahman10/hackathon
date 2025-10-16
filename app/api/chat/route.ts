@@ -1,112 +1,94 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { createClient } from "@supabase/supabase-js";
+import { z } from "zod";
+import { supabase } from "@/lib/supabaseClient";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-async function ensureBucket(name: string) {
-  const { data: buckets } = await supabase.storage.listBuckets();
-  if (!buckets?.some((b) => b.name === name)) {
-    await supabase.storage.createBucket(name, { public: false });
-  }
-}
+const schema = z.object({
+  prompt: z.string(),
+  userId: z.string(),
+  mode: z.enum(["character", "scenes"]),
+  character: z
+    .object({
+      name: z.string().optional(),
+      image_prompt: z.string().optional(),
+      image_url: z.string().optional(),
+    })
+    .optional(),
+});
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { prompt: userPrompt, mode, userId, metadata } = body;
+    const { prompt, mode, userId, character } = schema.parse(body);
 
-    if (!userPrompt || !mode || !userId) {
-      return NextResponse.json(
-        { error: "`prompt`, `mode`, and `userId` are required" },
-        { status: 400 }
-      );
+    let systemPrompt = "";
+
+    if (mode === "character") {
+      systemPrompt = `
+You are a creative assistant generating unique character concepts.
+Generate one main character from the user's input.
+Output only valid JSON:
+{
+  "name": "string",
+  "image_prompt": "string"
+}
+The image_prompt should vividly describe the character's visual appearance, clothing, and vibe.
+`;
+    } else if (mode === "scenes") {
+      systemPrompt = `
+You are a cinematic story designer.
+Generate exactly 3 scenes based on the user’s prompt.
+
+Each scene should:
+1. Feature the same main character (referenced by an image that will be provided later to the image model).
+2. Include a field "scene_image_prompt" that visually describes the scene and explicitly says:
+   "Include the main character from the provided character image in this scene."
+3. Include a field "scene_video_prompt" describing what happens in motion.
+
+Return only valid JSON:
+[
+  {
+    "scene_image_prompt": "string",
+    "scene_video_prompt": "string"
+  },
+  ...
+]
+`;
     }
 
-    const bucket = "generated";
-    await ensureBucket(bucket);
-
-    // Final prompt to send to OpenAI
-    let finalPrompt = userPrompt;
-
-    // For scenes, include character image info in the prompt
-    if (mode === "scenes") {
-      const { data: characterData, error } = await supabase
-        .from("characters")
-        .select("image_url")
-        .eq("user_id", userId)
-        .single();
-
-      if (error || !characterData?.image_url) {
-        return NextResponse.json({ error: "Character image not found" }, { status: 400 });
-      }
-
-      finalPrompt += ` Include the main character from this image URL in the scene: ${characterData.image_url}`;
-    }
-
-    // Generate image
-    const img = await openai.images.generate({
-      model: "gpt-image-1",
-      prompt: finalPrompt,
-      size: "1024x1024",
-      n: 1,
+    const response = await openai.responses.create({
+      model: "gpt-5-nano",
+      reasoning: { effort: "medium" },
+      input: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.8,
     });
 
-    const b64 = img.data?.[0]?.b64_json;
-    if (!b64) {
-      return NextResponse.json({ error: "No image data returned from OpenAI" }, { status: 502 });
-    }
+    const text = response.output_text?.trim() || "{}";
+    const data = JSON.parse(text);
 
-    const buffer = Buffer.from(b64, "base64");
-    const filePath = `${mode}/${Date.now()}.png`;
+    const bucket = "your-bucket-name";
+    const filePath = `path/to/your/file/${data.image_url}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from(bucket)
-      .upload(filePath, buffer, {
-        contentType: "image/png",
-        upsert: true,
-      });
-
-    if (uploadError) {
-      console.error("Upload error:", uploadError);
-      return NextResponse.json({ error: "Failed to upload image" }, { status: 500 });
-    }
-
-    const { data: urlData, error: urlError } = supabase.storage
+    const { data: urlData } = supabase.storage
       .from(bucket)
       .getPublicUrl(filePath);
 
-    if (urlError || !urlData?.publicUrl) {
+    if (!urlData?.publicUrl) {
       return NextResponse.json({ error: "Failed to get public URL" }, { status: 500 });
     }
 
     const imageUrl = urlData.publicUrl;
 
-    // Store in Supabase
-    if (mode === "character") {
-      await supabase.from("characters").insert({
-        user_id: userId,
-        name: metadata?.name || "",
-        image_prompt: userPrompt,
-        image_url: imageUrl,
-      });
-    } else if (mode === "scenes") {
-      await supabase.from("scenes").insert({
-        user_id: userId,
-        image_prompt: userPrompt,
-        image_url: imageUrl,
-      });
-    }
-
-    return NextResponse.json({ imageUrl, filePath });
+    return NextResponse.json({ data, imageUrl });
   } catch (err: any) {
-    console.error("genImage error:", err);
+    console.error("Chat API error:", err);
     return NextResponse.json(
-      { error: err.message || "Unexpected error" },
+      { error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

@@ -39,35 +39,31 @@ export async function POST(req: Request) {
       );
     }
 
-    const mode = type; // map frontend "type" to internal "mode"
-    const bucket = "generated";
+    const mode = type;
+    const bucket = "user_upload";
     await ensureBucket(bucket);
 
+    if (!userId) {
+      return NextResponse.json(
+        { error: "`userId` is required" },
+        { status: 400 }
+      );
+    }
+
     let finalPrompt = prompt;
+    let chatId = metadata?.chatId || "default-chat";
 
     // If scene, include character image
     if (mode === "scene") {
-      if (!userId) {
-        return NextResponse.json(
-          { error: "`userId` is required for scene generation" },
-          { status: 400 }
-        );
-      }
-
       const { data: characterData } = await supabase
         .from("characters")
-        .select("image_url")
-        .eq("user_id", userId)
+        .select("character_image_url")
+        .eq("chat_id", chatId)
         .single();
 
-      if (!characterData?.image_url) {
-        return NextResponse.json(
-          { error: "Character image not found. Generate character first." },
-          { status: 400 }
-        );
+      if (characterData?.character_image_url) {
+        finalPrompt += ` Include the main character from this image in the scene: ${characterData.character_image_url}`;
       }
-
-      finalPrompt += ` Include the main character from this image in the scene: ${characterData.image_url}`;
     }
 
     // Generate image via OpenAI
@@ -95,7 +91,8 @@ export async function POST(req: Request) {
     }
 
     const buffer = Buffer.from(b64, "base64");
-    const filePath = `${mode}/${Date.now()}.png`;
+    const timestamp = Date.now();
+    const filePath = `${userId}/${chatId}/${mode}_image_${timestamp}.png`;
 
     // Upload to Supabase
     const { error: uploadError } = await supabase.storage
@@ -127,7 +124,7 @@ export async function POST(req: Request) {
     // Update DB record instead of inserting new one
     if (mode === "character" && recordId) {
       const { error: updateError } = await supabase.from("characters").update({
-        image_url: publicUrl,
+        character_image_url: publicUrl,
       }).eq("id", recordId);
       
       if (updateError) {

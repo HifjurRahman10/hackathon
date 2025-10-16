@@ -85,8 +85,7 @@ export async function POST(req: Request) {
         { error: openaiError.message || "Failed to generate image" },
         { status: 502 }
       );
-    }
-
+    } 
     const b64 = aiResp.data?.[0]?.b64_json;
     if (!b64) {
       return NextResponse.json(

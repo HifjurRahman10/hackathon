@@ -1,15 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
+import { getBrowserSupabase } from "@/lib/auth/supabase-browser";
 
 export default function DashboardPage() {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [sceneImages, setSceneImages] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchUser() {
+      const supabase = getBrowserSupabase();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUserId(user.id);
+      } else {
+        setError("Please sign in to use this feature");
+      }
+    }
+    fetchUser();
+  }, []);
 
   async function handleGenerate() {
+    if (!userId) {
+      setError("Please sign in to use this feature");
+      return;
+    }
+
     setError(null);
     setSceneImages([]);
     setLoading(true);
@@ -22,11 +42,14 @@ export default function DashboardPage() {
         body: JSON.stringify({
           prompt,
           mode: "character",
-          userId: "demo-user", // Replace with actual user ID
+          userId,
         }),
       });
 
-      if (!charRes.ok) throw new Error("Character generation failed");
+      if (!charRes.ok) {
+        const errorData = await charRes.json().catch(() => ({ error: "Character generation failed" }));
+        throw new Error(errorData.error || "Character generation failed");
+      }
       const charData = await charRes.json();
 
       // 2️⃣ Generate Character Image
@@ -37,10 +60,14 @@ export default function DashboardPage() {
           prompt: charData.image_prompt,
           type: "character",
           recordId: charData.id,
+          userId,
         }),
       });
 
-      if (!imgRes.ok) throw new Error("Character image generation failed");
+      if (!imgRes.ok) {
+        const errorData = await imgRes.json().catch(() => ({ error: "Character image generation failed" }));
+        throw new Error(errorData.error || "Character image generation failed");
+      }
       const { imageUrl: characterImageUrl } = await imgRes.json();
 
       console.log("Character created:", charData.name, "→", characterImageUrl);
@@ -52,11 +79,14 @@ export default function DashboardPage() {
         body: JSON.stringify({
           prompt: `${prompt}\nCharacter: ${charData.name}\nDescription: ${charData.image_prompt}`,
           mode: "scenes",
-          userId: "demo-user",
+          userId,
         }),
       });
 
-      if (!sceneRes.ok) throw new Error("Scene generation failed");
+      if (!sceneRes.ok) {
+        const errorData = await sceneRes.json().catch(() => ({ error: "Scene generation failed" }));
+        throw new Error(errorData.error || "Scene generation failed");
+      }
       const { scenes } = await sceneRes.json();
       if (!Array.isArray(scenes) || scenes.length !== 3)
         throw new Error("Scene data malformed");
@@ -71,10 +101,14 @@ export default function DashboardPage() {
               prompt: scene.scene_image_prompt,
               type: "scene",
               recordId: scene.id,
+              userId,
             }),
           });
 
-          if (!img.ok) throw new Error(`Scene ${scene.scene_number} image failed`);
+          if (!img.ok) {
+            const errorData = await img.json().catch(() => ({ error: `Scene ${scene.scene_number} image failed` }));
+            throw new Error(errorData.error || `Scene ${scene.scene_number} image failed`);
+          }
           const { imageUrl } = await img.json();
           return imageUrl;
         })

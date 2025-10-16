@@ -1,75 +1,74 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
-
-// Ensure the private bucket exists
 async function ensureBucket(name: string) {
   const { data: buckets } = await supabase.storage.listBuckets();
-  if (!buckets?.some(b => b.name === name)) {
+  if (!buckets?.some((b) => b.name === name)) {
     await supabase.storage.createBucket(name, { public: false });
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const { prompt, chatId, sceneNumber, userId, force } = await req.json();
+    const body = await req.json();
+    const { prompt: userPrompt, mode, userId, metadata } = body;
 
-    if (!prompt || !chatId || sceneNumber === undefined || !userId) {
+    if (!userPrompt || !mode || !userId) {
       return NextResponse.json(
-        { error: "`prompt`, `chatId`, `sceneNumber`, and `userId` are required" },
+        { error: "`prompt`, `mode`, and `userId` are required" },
         { status: 400 }
       );
     }
 
-    const bucket = "user_upload";
+    const bucket = "generated";
     await ensureBucket(bucket);
 
-    // Unique path per user/chat/scene
-    const fileName = `${sceneNumber}_${Date.now()}.png`;
-    const filePath = `${userId}/${chatId}/${fileName}`;
+    // Final prompt to send to OpenAI
+    let finalPrompt = userPrompt;
 
-    // Optional: skip generation if file exists
-    if (!force) {
-      const { data: existing } = await supabase.storage.from(bucket).list(`${userId}/${chatId}`);
-      if (existing?.some(f => f.name === fileName)) {
-        const { data: urlData, error: urlError } = await supabase.storage.from(bucket).createSignedUrl(filePath, 60 * 60);
-        if (!urlError && urlData) {
-          return NextResponse.json({ imageUrl: urlData.signedUrl, path: filePath });
-        }
+    // For scenes, include character image info in the prompt
+    if (mode === "scenes") {
+      const { data: characterData, error } = await supabase
+        .from("characters")
+        .select("image_url")
+        .eq("user_id", userId)
+        .single();
+
+      if (error || !characterData?.image_url) {
+        return NextResponse.json({ error: "Character image not found" }, { status: 400 });
       }
+
+      finalPrompt += ` Include the main character from this image URL in the scene: ${characterData.image_url}`;
     }
 
-    // Generate image with OpenAI
-    const aiResp = await openai.images.generate({
+    // Generate image
+    const img = await openai.images.generate({
       model: "gpt-image-1",
-      prompt,
+      prompt: finalPrompt,
       size: "1024x1024",
       n: 1,
-      quality: "low",
     });
 
-    const b64 = aiResp.data?.[0]?.b64_json;
+    const b64 = img.data?.[0]?.b64_json;
     if (!b64) {
       return NextResponse.json({ error: "No image data returned from OpenAI" }, { status: 502 });
     }
 
     const buffer = Buffer.from(b64, "base64");
+    const filePath = `${mode}/${Date.now()}.png`;
 
-    // Upload image to private Supabase bucket
-    const { error: uploadError } = await supabase
-      .storage
+    const { error: uploadError } = await supabase.storage
       .from(bucket)
       .upload(filePath, buffer, {
-        upsert: true,
         contentType: "image/png",
+        upsert: true,
       });
 
     if (uploadError) {
@@ -77,26 +76,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to upload image" }, { status: 500 });
     }
 
-    // Generate signed URL valid for 1 hour
-    const { data: signedUrlData, error: signedUrlError } = await supabase
-      .storage
+    const { data: urlData } = supabase.storage
       .from(bucket)
-      .createSignedUrl(filePath, 60 * 60);
+      .getPublicUrl(filePath);
 
-    if (signedUrlError) {
-      console.error("Signed URL error:", signedUrlError);
-      return NextResponse.json({ error: "Failed to create signed URL" }, { status: 500 });
+    if (!urlData?.publicUrl) {
+      return NextResponse.json({ error: "Failed to get public URL" }, { status: 500 });
     }
 
-    // Store the **file path** in the DB (not the signed URL)
-    await supabase
-      .from("scenes")
-      .update({ image_url: filePath })
-      .eq("chat_id", chatId)
-      .eq("scene_number", sceneNumber);
+    const imageUrl = urlData.publicUrl;
 
-    // Return signed URL for immediate display
-    return NextResponse.json({ imageUrl: signedUrlData.signedUrl, path: filePath });
+    // Store in Supabase
+    if (mode === "character") {
+      await supabase.from("characters").insert({
+        user_id: userId,
+        name: metadata?.name || "",
+        image_prompt: userPrompt,
+        image_url: imageUrl,
+      });
+    } else if (mode === "scenes") {
+      await supabase.from("scenes").insert({
+        user_id: userId,
+        image_prompt: userPrompt,
+        image_url: imageUrl,
+      });
+    }
+
+    return NextResponse.json({ imageUrl, filePath });
   } catch (err: any) {
     console.error("genImage error:", err);
     return NextResponse.json(

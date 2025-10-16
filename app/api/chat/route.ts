@@ -10,13 +10,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const SceneSchema = z.object({
-  sceneNumber: z.number().int().min(1),
-  scenePrompt: z.string(),
-  sceneImagePrompt: z.string(),
-  characterDescription: z.string().optional(),
-});
-
 const MessageSchema = z.object({
   role: z.string(),
   content: z.string(),
@@ -31,7 +24,7 @@ export async function POST(req: Request) {
 
     if (!raw) return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
 
-    let { chatId, messages, numScenes, systemPrompt } = raw as any;
+    let { chatId, messages, numScenes} = raw as any;
 
     if (typeof chatId === "number") chatId = chatId.toString();
     if (!chatId?.trim()) {
@@ -59,47 +52,16 @@ export async function POST(req: Request) {
 
     if (chatErr || !chatOwner) return NextResponse.json({ error: "Chat not found" }, { status: 404 });
 
-    // Detailed system prompt
-    const detailedSystemPrompt =
-      systemPrompt || process.env.SYSTEM_PROMPT;
-    // Combine user messages
-    const combinedUserMessages = parsedMessages.data
-      .map((m: any) => `${m.role}: ${m.content}`)
-      .join("\n");
 
     // Responses API call
     const response = await openai.responses.create({
       model: "gpt-5-nano",
-      input: [
-        { role: "system", content: detailedSystemPrompt },
-        { role: "user", content: combinedUserMessages },
-      ],
+      input: messages, // use messages directly
     });
 
     const rawOutput = response.output_text;
     if (!rawOutput) return NextResponse.json({ error: "No output from OpenAI" }, { status: 502 });
 
-    let scenes;
-    try {
-      scenes = z.array(SceneSchema).parse(JSON.parse(rawOutput.trim()));
-    } catch (err) {
-      console.error("Parsing scenes failed:", err, "raw:", rawOutput);
-      return NextResponse.json({ error: "Invalid JSON from OpenAI", details: rawOutput }, { status: 502 });
-    }
-
-    // Insert scenes into Supabase
-    for (const scene of scenes) {
-      const { error: insertError } = await supabase.from("scenes").insert({
-        chat_id: chatId,
-        scene_number: scene.sceneNumber,
-        scene_prompt: scene.scenePrompt,
-        scene_image_prompt: scene.sceneImagePrompt,
-        character_description: scene.characterDescription ?? null,
-      });
-      if (insertError) console.error("Error inserting scene:", insertError);
-    }
-
-    return NextResponse.json({ systemPrompt: detailedSystemPrompt, scenes });
   } catch (err: any) {
     console.error("Chat route error:", err);
     return NextResponse.json({ error: err.message || "Internal server error", details: err.stack }, { status: 500 });

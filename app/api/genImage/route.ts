@@ -121,8 +121,8 @@ export async function POST(req: Request) {
 
     const publicUrl = urlData.publicUrl;
 
-    // Update DB record instead of inserting new one
-    if (mode === "character" && recordId) {
+    // Update DB record if valid recordId provided
+    if (mode === "character" && recordId && recordId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
       const { error: updateError } = await supabase.from("characters").update({
         character_image_url: publicUrl,
       }).eq("id", recordId);
@@ -130,7 +130,7 @@ export async function POST(req: Request) {
       if (updateError) {
         console.error("Failed to update character record:", updateError);
       }
-    } else if (mode === "scene" && recordId) {
+    } else if (mode === "scene" && recordId && recordId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
       const { error: updateError } = await supabase.from("scenes").update({
         image_url: publicUrl,
       }).eq("id", recordId);

@@ -20,7 +20,16 @@ async function ensureBucket(name: string) {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    let body;
+    try {
+      body = await req.json();
+    } catch (parseError) {
+      return NextResponse.json(
+        { error: "Invalid JSON in request body" },
+        { status: 400 }
+      );
+    }
+
     const { prompt, type, recordId, metadata, userId } = body;
 
     if (!prompt || !type) {
@@ -62,12 +71,21 @@ export async function POST(req: Request) {
     }
 
     // Generate image via OpenAI
-    const aiResp = await openai.images.generate({
-      model: "gpt-image-1",
-      prompt: finalPrompt,
-      size: "1024x1024",
-      n: 1,
-    });
+    let aiResp;
+    try {
+      aiResp = await openai.images.generate({
+        model: "gpt-image-1",
+        prompt: finalPrompt,
+        quality: "low",
+        n: 1,
+      });
+    } catch (openaiError: any) {
+      console.error("OpenAI API error:", openaiError);
+      return NextResponse.json(
+        { error: openaiError.message || "Failed to generate image" },
+        { status: 502 }
+      );
+    }
 
     const b64 = aiResp.data?.[0]?.b64_json;
     if (!b64) {
@@ -109,13 +127,21 @@ export async function POST(req: Request) {
 
     // Update DB record instead of inserting new one
     if (mode === "character" && recordId) {
-      await supabase.from("characters").update({
+      const { error: updateError } = await supabase.from("characters").update({
         image_url: publicUrl,
       }).eq("id", recordId);
+      
+      if (updateError) {
+        console.error("Failed to update character record:", updateError);
+      }
     } else if (mode === "scene" && recordId) {
-      await supabase.from("scenes").update({
+      const { error: updateError } = await supabase.from("scenes").update({
         image_url: publicUrl,
       }).eq("id", recordId);
+      
+      if (updateError) {
+        console.error("Failed to update scene record:", updateError);
+      }
     }
 
     return NextResponse.json({ imageUrl: publicUrl, filePath });

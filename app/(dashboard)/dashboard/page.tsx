@@ -50,7 +50,12 @@ export default function DashboardPage() {
         const errorData = await charRes.json().catch(() => ({ error: "Character generation failed" }));
         throw new Error(errorData.error || "Character generation failed");
       }
-      const charData = await charRes.json();
+      const charResponse = await charRes.json();
+      const charData = charResponse.data;
+
+      if (!charData?.image_prompt) {
+        throw new Error("Invalid character data received");
+      }
 
       // 2️⃣ Generate Character Image
       const imgRes = await fetch("/api/genImage", {
@@ -59,7 +64,7 @@ export default function DashboardPage() {
         body: JSON.stringify({
           prompt: charData.image_prompt,
           type: "character",
-          recordId: charData.id,
+          recordId: charData.id || "temp-id",
           userId,
         }),
       });
@@ -87,27 +92,28 @@ export default function DashboardPage() {
         const errorData = await sceneRes.json().catch(() => ({ error: "Scene generation failed" }));
         throw new Error(errorData.error || "Scene generation failed");
       }
-      const { scenes } = await sceneRes.json();
+      const sceneResponse = await sceneRes.json();
+      const scenes = sceneResponse.data;
       if (!Array.isArray(scenes) || scenes.length !== 3)
         throw new Error("Scene data malformed");
 
       // 4️⃣ Generate Scene Images in Parallel
       const sceneImages = await Promise.all(
-        scenes.map(async (scene) => {
+        scenes.map(async (scene, index) => {
           const img = await fetch("/api/genImage", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               prompt: scene.scene_image_prompt,
               type: "scene",
-              recordId: scene.id,
+              recordId: scene.id || `temp-scene-${index}`,
               userId,
             }),
           });
 
           if (!img.ok) {
-            const errorData = await img.json().catch(() => ({ error: `Scene ${scene.scene_number} image failed` }));
-            throw new Error(errorData.error || `Scene ${scene.scene_number} image failed`);
+            const errorData = await img.json().catch(() => ({ error: `Scene ${index + 1} image failed` }));
+            throw new Error(errorData.error || `Scene ${index + 1} image failed`);
           }
           const { imageUrl } = await img.json();
           return imageUrl;

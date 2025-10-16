@@ -14,11 +14,11 @@ export async function syncUser(supabaseUser: SupabaseUser): Promise<User> {
     throw new Error('Supabase user has no email')
   }
 
-  // Try to find the user in your local DB
+  // Try to find the user in your local DB by supabase_id
   const [existingUser] = await db
     .select()
     .from(users)
-    .where(eq(users.email, supabaseUser.email))
+    .where(eq(users.supabaseId, supabaseUser.id))
     .limit(1)
 
   if (existingUser) {
@@ -29,10 +29,9 @@ export async function syncUser(supabaseUser: SupabaseUser): Promise<User> {
   const [newUser] = await db
     .insert(users)
     .values({
-      id: crypto.randomUUID(),            // FIX: supply required id (no default in schema)
       email: supabaseUser.email,
       supabaseId: supabaseUser.id,
-      name: supabaseUser.user_metadata?.full_name || '',
+      name: supabaseUser.user_metadata?.full_name || supabaseUser.email.split('@')[0],
       role: 'member'
     })
     .returning()

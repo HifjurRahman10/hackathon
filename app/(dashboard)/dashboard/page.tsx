@@ -25,6 +25,17 @@ export default function DashboardPage() {
       const supabase = getBrowserSupabase();
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
+        // Sync user to local database
+        try {
+          await fetch("/api/user/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ supabaseUser: user }),
+          });
+        } catch (err) {
+          console.error("Failed to sync user:", err);
+        }
+        
         setUserId(user.id);
         await loadChats(user.id);
       } else {
@@ -41,6 +52,8 @@ export default function DashboardPage() {
       setChats(chats || []);
       if (chats && chats.length > 0) {
         setCurrentChatId(chats[0].id);
+      } else {
+        await createNewChat();
       }
     } catch (err) {
       console.error("Failed to load chats:", err);

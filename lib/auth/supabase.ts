@@ -58,32 +58,55 @@ export const createAdminSupabase = () => {
 
 // Middleware helper
 export const createMiddlewareSupabase = (request: NextRequest) => {
-  let supabaseResponse = NextResponse.next({
-    request,
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
   })
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
-      getAll() {
-        return request.cookies.getAll()
+      get(name: string) {
+        return request.cookies.get(name)?.value
       },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
-        supabaseResponse = NextResponse.next({
-          request,
+      set(name: string, value: string, options) {
+        request.cookies.set({
+          name,
+          value,
+          ...options,
         })
-        cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, {
-            ...options,
-            sameSite: 'lax',
-            secure: process.env.NODE_ENV === 'production'
-          })
-        )
+        response = NextResponse.next({
+          request: {
+            headers: request.headers,
+          },
+        })
+        response.cookies.set({
+          name,
+          value,
+          ...options,
+        })
+      },
+      remove(name: string, options) {
+        request.cookies.set({
+          name,
+          value: '',
+          ...options,
+        })
+        response = NextResponse.next({
+          request: {
+            headers: request.headers,
+          },
+        })
+        response.cookies.set({
+          name,
+          value: '',
+          ...options,
+        })
       },
     },
   })
 
-  return { supabase, supabaseResponse }
+  return { supabase, supabaseResponse: response }
 }
 
 export async function createSupabaseClient() {

@@ -55,14 +55,10 @@ export const signIn = validatedAction(signInSchema, async (data, formData) => {
   const { email, password } = data
   const supa = await createServerSupabase()
 
-  const { data: authData, error } = await supa.auth.signInWithPassword({ 
-    email, 
-    password 
-  })
-  
+  const { data: authData, error } = await supa.auth.signInWithPassword({ email, password })
   if (error) return { error: 'Invalid email or password', email, password }
 
-  if (authData.user && authData.session) {
+  if (authData.user) {
     const user = await syncUser(authData.user)
     const userWithTeam = await getUserWithTeam(user.id)
     await logActivity(userWithTeam?.teamId as string, user.id as string, ActivityType.SIGN_IN)

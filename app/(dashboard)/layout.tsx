@@ -2,17 +2,19 @@
 
 import Link from 'next/link';
 import { useState, useEffect, Suspense } from 'react';
-import { Button } from '@/components/ui/button';
-import { CircleIcon, Home, LogOut } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useRouter, usePathname } from 'next/navigation';
 import { getBrowserSupabase } from '@/lib/auth/supabase-browser';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu';
+import { Home, LogOut } from 'lucide-react';
+
+import { CircleIcon } from 'lucide-react';
 import type { User, AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 function getInitials(user: User | null): string {
@@ -159,4 +161,3 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     </section>
   );
 }
-

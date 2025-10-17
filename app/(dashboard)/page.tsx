@@ -1,99 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { getBrowserSupabase } from "@/lib/auth/supabase-browser";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, CreditCard, Database, Home, LogOut } from "lucide-react";
+import { ArrowRight, CreditCard, Database } from "lucide-react";
 import { Terminal } from "./terminal";
 
 export default function HomePage() {
-  const [user, setUser] = useState<any>(null);
-  const router = useRouter();
-
-  useEffect(() => {
-    const getSession = async () => {
-      const supabase = getBrowserSupabase();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser(session.user);
-      }
-    };
-    getSession();
-  }, []);
-
-  async function handleSignOut() {
-    const supabase = getBrowserSupabase();
-    await supabase.auth.signOut();
-    setUser(null);
-    router.refresh();
-  }
-
-  function getInitials(nameOrEmail?: string) {
-    if (!nameOrEmail) return "?";
-    const clean = nameOrEmail.replace(/@.*/, "");
-    const parts = clean.split(/[\s._-]+/).filter(Boolean);
-    if (parts.length === 0) return clean.charAt(0).toUpperCase();
-    if (parts.length === 1) return parts[0][0].toUpperCase();
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  }
-
   return (
     <main>
       {/* Hero Section */}
       <section className="py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Header with avatar dropdown */}
-          <div className="flex justify-between items-center mb-10">
-            <h1 className="text-4xl font-bold text-gray-900 tracking-tight sm:text-5xl md:text-6xl">
-              Build Your SaaS{" "}
-              <span className="block text-orange-500">Faster Than Ever</span>
-            </h1>
-
-            {user && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="focus:outline-none">
-                    <Avatar className="size-10 cursor-pointer">
-                      <AvatarImage
-                        src={user.user_metadata?.avatar_url}
-                        alt={user.user_metadata?.full_name || user.email}
-                      />
-                      <AvatarFallback className="bg-orange-500 text-white font-medium">
-                        {getInitials(user.user_metadata?.full_name || user.email)}
-                      </AvatarFallback>
-                    </Avatar>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem asChild>
-                    <Link href="/dashboard" className="flex items-center cursor-pointer">
-                      <Home className="mr-2 h-4 w-4" />
-                      Dashboard
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={handleSignOut}
-                    className="text-red-600 focus:text-red-700 cursor-pointer"
-                  >
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Sign out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
-
           <div className="lg:grid lg:grid-cols-12 lg:gap-8">
             <div className="sm:text-center md:max-w-2xl md:mx-auto lg:col-span-6 lg:text-left">
+              <h1 className="text-4xl font-bold text-gray-900 tracking-tight sm:text-5xl md:text-6xl">
+                Build Your SaaS{" "}
+                <span className="block text-orange-500">Faster Than Ever</span>
+              </h1>
               <p className="mt-3 text-base text-gray-500 sm:mt-5 sm:text-xl lg:text-lg xl:text-xl">
                 Launch your SaaS product in record time with our powerful,
                 ready-to-use template. Packed with modern technologies and

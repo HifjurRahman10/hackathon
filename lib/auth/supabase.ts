@@ -30,7 +30,11 @@ export const createServerSupabase = async () => {
       setAll(cookiesToSet) {
         try {
           cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
+            cookieStore.set(name, value, {
+              ...options,
+              sameSite: 'lax',
+              secure: process.env.NODE_ENV === 'production'
+            })
           )
         } catch {
           // The `setAll` method was called from a Server Component.
@@ -69,7 +73,11 @@ export const createMiddlewareSupabase = (request: NextRequest) => {
           request,
         })
         cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options)
+          supabaseResponse.cookies.set(name, value, {
+            ...options,
+            sameSite: 'lax',
+            secure: process.env.NODE_ENV === 'production'
+          })
         )
       },
     },
@@ -88,7 +96,11 @@ export async function createSupabaseClient() {
       setAll: (entries) => {
         try {
           entries.forEach(({ name, value, options }) =>
-            store.set(name, value, options)
+            store.set(name, value, {
+              ...options,
+              sameSite: 'lax',
+              secure: process.env.NODE_ENV === 'production'
+            })
           )
         } catch {
           /* ignore in RSC */

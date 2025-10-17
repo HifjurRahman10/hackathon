@@ -12,10 +12,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
-import { Home, LogOut } from 'lucide-react';
-
-import { CircleIcon } from 'lucide-react';
-import type { User, AuthChangeEvent, Session } from '@supabase/supabase-js';
+import { Home, LogOut, CircleIcon } from 'lucide-react';
+import type { User } from '@supabase/supabase-js';
 
 function getInitials(user: User | null): string {
   if (!user) return '?';
@@ -29,7 +27,6 @@ function getInitials(user: User | null): string {
 }
 
 function UserMenu() {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
@@ -39,26 +36,7 @@ function UserMenu() {
     async function init() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const currentUser = session?.user || null;
-
-        if (currentUser) {
-          // Check if user exists in Supabase "users" table
-          const { data: dbUser, error } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', currentUser.id)
-            .single();
-
-          if (!dbUser || error) {
-            // User not in DB -> remove session
-            await supabase.auth.signOut();
-            setUser(null);
-          } else {
-            setUser(currentUser);
-          }
-        } else {
-          setUser(null);
-        }
+        setUser(session?.user || null);
       } catch (err) {
         console.error('Error initializing user session:', err);
         setUser(null);
@@ -69,11 +47,9 @@ function UserMenu() {
 
     init();
 
-    // Listen to auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event: AuthChangeEvent, session: Session | null) => {
+      (_event, session) => {
         setUser(session?.user || null);
-        setLoading(false);
       }
     );
 
@@ -90,13 +66,19 @@ function UserMenu() {
     }
   }
 
-  if (loading) return <div className="h-9 w-9 rounded-full bg-gray-200 animate-pulse" />;
+  if (loading) {
+    return <div className="h-9 w-9 rounded-full bg-gray-200 animate-pulse" />;
+  }
 
   if (!user) {
     return (
       <>
-        <Link href="/pricing" className="text-sm font-medium text-gray-700 hover:text-gray-900">Pricing</Link>
-        <Link href="/sign-in" className="text-sm font-medium text-gray-700 hover:text-gray-900">Sign In</Link>
+        <Link href="/pricing" className="text-sm font-medium text-gray-700 hover:text-gray-900">
+          Pricing
+        </Link>
+        <Link href="/sign-in" className="text-sm font-medium text-gray-700 hover:text-gray-900">
+          Sign In
+        </Link>
         <Button asChild className="rounded-full">
           <Link href="/sign-up">Sign Up</Link>
         </Button>
@@ -105,12 +87,17 @@ function UserMenu() {
   }
 
   return (
-    <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+    <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 rounded-full">
           <Avatar className="cursor-pointer size-9">
-            <AvatarImage src={user.user_metadata?.avatar_url} alt={user.user_metadata?.full_name || user.email || ''} />
-            <AvatarFallback className="bg-orange-500 text-white font-medium">{getInitials(user)}</AvatarFallback>
+            <AvatarImage 
+              src={user.user_metadata?.avatar_url} 
+              alt={user.user_metadata?.full_name || user.email || ''} 
+            />
+            <AvatarFallback className="bg-orange-500 text-white font-medium">
+              {getInitials(user)}
+            </AvatarFallback>
           </Avatar>
         </button>
       </DropdownMenuTrigger>
@@ -152,7 +139,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isDashboardPage = pathname?.startsWith('/dashboard');
 
-  if (isDashboardPage) return <section className="h-screen w-full">{children}</section>;
+  if (isDashboardPage) {
+    return <section className="h-screen w-full">{children}</section>;
+  }
 
   return (
     <section className="flex flex-col min-h-screen">

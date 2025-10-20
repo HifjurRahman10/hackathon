@@ -391,5 +391,6 @@ Remember: The AI image/video models MUST be able to maintain the exact same char
       { error: err.message || "Internal server error" },
       { status: 500 }
     );
+    
   }
 }

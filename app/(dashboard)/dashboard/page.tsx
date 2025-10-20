@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { getBrowserSupabase } from "@/lib/auth/supabase-browser";
-import { Plus, MessageSquare, Trash2 } from "lucide-react";
+import { Plus, MessageSquare, Trash2, Video } from "lucide-react";
 
 interface Chat {
   id: string;
@@ -11,22 +11,27 @@ interface Chat {
   created_at: string;
 }
 
+interface SceneData {
+  imageUrl: string;
+  videoUrl?: string;
+}
+
 export default function DashboardPage() {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
-  const [sceneImages, setSceneImages] = useState<string[]>([]);
+  const [scenes, setScenes] = useState<SceneData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [hasExistingScenes, setHasExistingScenes] = useState(false);
+  const [generatingVideos, setGeneratingVideos] = useState(false);
 
   useEffect(() => {
     async function fetchUser() {
       const supabase = getBrowserSupabase();
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        // Sync user to local database
         try {
           await fetch("/api/user/sync", {
             method: "POST",
@@ -74,18 +79,19 @@ export default function DashboardPage() {
       const res = await fetch(`/api/scenes?chatId=${chatId}`);
       const { scenes } = await res.json();
       if (scenes && scenes.length > 0) {
-        const imageUrls = scenes
-          .filter((s: any) => s.image_url)
-          .map((s: any) => s.image_url);
-        setSceneImages(imageUrls);
+        const sceneData = scenes.map((s: any) => ({
+          imageUrl: s.image_url,
+          videoUrl: s.video_url || undefined
+        }));
+        setScenes(sceneData);
         setHasExistingScenes(true);
       } else {
-        setSceneImages([]);
+        setScenes([]);
         setHasExistingScenes(false);
       }
     } catch (err) {
       console.error("Failed to load scenes:", err);
-      setSceneImages([]);
+      setScenes([]);
       setHasExistingScenes(false);
     }
   }
@@ -97,12 +103,11 @@ export default function DashboardPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId, title: "New Chat" }),
-        
       });
       const { chat } = await res.json();
       setChats([chat, ...chats]);
       setCurrentChatId(chat.id);
-      setSceneImages([]);
+      setScenes([]);
       setHasExistingScenes(false);
       setPrompt("");
     } catch (err) {
@@ -117,6 +122,12 @@ export default function DashboardPage() {
       setChats(newChats);
       if (currentChatId === chatId) {
         setCurrentChatId(newChats[0]?.id || null);
+        if (newChats[0]) {
+          await loadScenes(newChats[0].id);
+        } else {
+          setScenes([]);
+          setHasExistingScenes(false);
+        }
       }
     } catch (err) {
       console.error("Failed to delete chat:", err);
@@ -129,18 +140,13 @@ export default function DashboardPage() {
       return;
     }
 
-    if (!currentChatId) {
-      await createNewChat();
-      return;
-    }
-
     if (hasExistingScenes) {
       setError("Only one prompt allowed per chat. Create a new chat to generate more.");
       return;
     }
 
     setError(null);
-    setSceneImages([]);
+    setScenes([]);
     setLoading(true);
 
     try {
@@ -205,13 +211,13 @@ export default function DashboardPage() {
         throw new Error(errorData.error || "Scene generation failed");
       }
       const sceneResponse = await sceneRes.json();
-      const scenes = sceneResponse.data;
-      if (!Array.isArray(scenes) || scenes.length !== 3)
+      const scenesData = sceneResponse.data;
+      if (!Array.isArray(scenesData) || scenesData.length !== 3)
         throw new Error("Scene data malformed");
 
       // 4️⃣ Generate Scene Images in Parallel
       const sceneImages = await Promise.all(
-        scenes.map(async (scene, index) => {
+        scenesData.map(async (scene, index) => {
           const img = await fetch("/api/genImage", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -229,18 +235,62 @@ export default function DashboardPage() {
             throw new Error(errorData.error || `Scene ${index + 1} image failed`);
           }
           const { imageUrl } = await img.json();
-          return imageUrl;
+          return { imageUrl, sceneId: scene.id, videoPrompt: scene.scene_video_prompt };
         })
       );
 
       // 5️⃣ Display Scene Images
-      setSceneImages(sceneImages);
+      setScenes(sceneImages.map(s => ({ imageUrl: s.imageUrl })));
       setHasExistingScenes(true);
+      setLoading(false);
+
+      // 6️⃣ Generate Videos in Parallel
+      setGeneratingVideos(true);
+      const videoResults = await Promise.all(
+        sceneImages.map(async (scene, index) => {
+          try {
+            console.log(`Starting video generation for scene ${index + 1}...`);
+            const videoRes = await fetch("/api/genVideo", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                prompt: scene.videoPrompt,
+                imageUrl: scene.imageUrl,
+                sceneId: scene.sceneId,
+                userId,
+                metadata: { chatId: currentChatId },
+              }),
+            });
+
+            if (!videoRes.ok) {
+              const errorData = await videoRes.json().catch(() => ({}));
+              console.error(`Video ${index + 1} generation failed:`, errorData);
+              return null;
+            }
+            const { videoUrl } = await videoRes.json();
+            console.log(`Video ${index + 1} completed:`, videoUrl);
+            return { index, videoUrl };
+          } catch (err) {
+            console.error(`Error generating video ${index + 1}:`, err);
+            return null;
+          }
+        })
+      );
+
+      // 7️⃣ Update scenes with video URLs
+      setScenes(prevScenes => 
+        prevScenes.map((scene, idx) => {
+          const result = videoResults.find(r => r?.index === idx);
+          return result ? { ...scene, videoUrl: result.videoUrl } : scene;
+        })
+      );
+      setGeneratingVideos(false);
+
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Something went wrong");
-    } finally {
       setLoading(false);
+      setGeneratingVideos(false);
     }
   }
 
@@ -307,13 +357,14 @@ export default function DashboardPage() {
               }}
               placeholder="Enter your story idea..."
               className="w-full p-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-black min-h-[100px]"
+              disabled={loading}
             />
 
             <div className="flex justify-center mt-4">
               <button
                 onClick={handleGenerate}
                 disabled={loading || !prompt.trim() || !currentChatId}
-                className="px-6 py-2 bg-black text-white rounded-lg disabled:opacity-50"
+                className="px-6 py-2 bg-black text-white rounded-lg disabled:opacity-50 hover:bg-gray-800 transition"
               >
                 {loading ? "Generating..." : "Generate"}
               </button>
@@ -323,22 +374,55 @@ export default function DashboardPage() {
               <p className="text-red-600 text-center mt-4 font-medium">{error}</p>
             )}
 
-            {/* Scene Images */}
+            {generatingVideos && (
+              <p className="text-blue-600 text-center mt-4 font-medium flex items-center justify-center gap-2">
+                <Video className="w-5 h-5 animate-pulse" />
+                Generating videos in background...
+              </p>
+            )}
+
+            {/* Scene Images & Videos */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-8">
-              {sceneImages.map((src, i) => (
+              {scenes.map((scene, i) => (
                 <div
                   key={i}
-                  className="relative aspect-square rounded-xl overflow-hidden shadow-md"
+                  className="relative aspect-square rounded-xl overflow-hidden shadow-md bg-gray-100"
                 >
-                  <Image
-                    src={src}
-                    alt={`Scene ${i + 1}`}
-                    fill
-                    className="object-cover"
-                  />
-                  <span className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
-                    Scene {i + 1}
+                  {scene.videoUrl ? (
+                    <video
+                      src={scene.videoUrl}
+                      controls
+                      autoPlay
+                      loop
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <Image
+                      src={scene.imageUrl}
+                      alt={`Scene ${i + 1}`}
+                      fill
+                      className="object-cover"
+                    />
+                  )}
+                  <span className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
+                    {scene.videoUrl ? (
+                      <>
+                        <Video className="w-3 h-3" />
+                        Scene {i + 1}
+                      </>
+                    ) : (
+                      `Scene ${i + 1}`
+                    )}
                   </span>
+                  {!scene.videoUrl && generatingVideos && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <div className="text-center text-white">
+                        <Video className="w-8 h-8 mx-auto animate-pulse mb-2" />
+                        <p className="text-xs">Processing...</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

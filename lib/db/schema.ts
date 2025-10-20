@@ -80,6 +80,7 @@ export const scenes = pgTable('scenes', {
   sceneImagePrompt: text('scene_image_prompt'),
   sceneVideoPrompt: text('scene_video_prompt'),
   imageUrl: text('image_url'),
+  videoUrl: text('video_url'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

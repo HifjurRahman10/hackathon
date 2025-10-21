@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 import ffmpeg from 'fluent-ffmpeg';
+import ffmpegStatic from 'ffmpeg-static';
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { promisify } from 'util';
+
+// Set ffmpeg path
+if (ffmpegStatic) {
+  ffmpeg.setFfmpegPath(ffmpegStatic);
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -66,7 +72,7 @@ export async function POST(req: Request) {
       // Upload to Supabase storage
       const fileName = `stitched-${chatId}-${Date.now()}.mp4`;
       const { data, error } = await supabase.storage
-        .from('videos')
+        .from('user_upload')
         .upload(fileName, outputBuffer, {
           contentType: 'video/mp4',
           upsert: false
@@ -78,16 +84,12 @@ export async function POST(req: Request) {
 
       // Get public URL
       const { data: urlData } = supabase.storage
-        .from('videos')
+        .from('user_upload')
         .getPublicUrl(fileName);
 
-      // Save to database
-      await supabase.from('stitched_videos').insert({
-        chat_id: chatId,
-        user_id: userId,
-        video_url: urlData.publicUrl,
-        scene_count: videoUrls.length,
-      });
+      if (!urlData?.publicUrl) {
+        throw new Error('Failed to get public URL');
+      }
 
       return NextResponse.json({ videoUrl: urlData.publicUrl });
     } finally {

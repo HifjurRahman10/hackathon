@@ -282,24 +282,38 @@ export default function DashboardPage() {
       // 7️⃣ Update scenes with video URLs
       const updatedScenes = scenes.map((scene, idx) => {
         const result = videoResults.find(r => r?.index === idx);
-        return result ? { ...scene, videoUrl: result.videoUrl } : scene;
+        const updatedScene = result ? { ...scene, videoUrl: result.videoUrl } : scene;
+        if (updatedScene.videoUrl) {
+          console.log(`Scene ${idx + 1} video URL:`, updatedScene.videoUrl);
+        }
+        return updatedScene;
       });
       setScenes(updatedScenes);
       setGeneratingVideos(false);
 
       // Stitch videos if all are ready
       if (updatedScenes.every((s: SceneData) => s.videoUrl)) {
+        console.log("All videos ready, starting stitch...");
         const videoUrls = updatedScenes.map(s => s.videoUrl!);
-        const stitchRes = await fetch("/api/stitch", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ videoUrls, chatId: currentChatId, userId }),
-        });
-        if (stitchRes.ok) {
-          const { videoUrl } = await stitchRes.json();
-          setStitchedVideoUrl(videoUrl);
-        } else {
-          console.error("Stitching failed");
+        console.log("Video URLs:", videoUrls);
+        try {
+          const stitchRes = await fetch("/api/stitch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ videoUrls, chatId: currentChatId, userId }),
+          });
+          if (stitchRes.ok) {
+            const { videoUrl } = await stitchRes.json();
+            console.log("Stitched video URL:", videoUrl);
+            setStitchedVideoUrl(videoUrl);
+          } else {
+            const errorText = await stitchRes.text();
+            console.error("Stitching failed:", stitchRes.status, errorText);
+            setError("Video stitching failed. Individual videos are available below.");
+          }
+        } catch (stitchErr) {
+          console.error("Stitch request error:", stitchErr);
+          setError("Video stitching failed. Individual videos are available below.");
         }
       }
 
@@ -404,6 +418,19 @@ export default function DashboardPage() {
 
 
 
+            {stitchedVideoUrl && (
+              <div className="mb-8">
+                <h2 className="text-xl font-semibold mb-4 text-center">Stitched Cinematic Video</h2>
+                <div className="flex justify-center">
+                  <video
+                    src={stitchedVideoUrl}
+                    controls
+                    className="max-w-full rounded-lg shadow-md"
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Scene Images & Videos */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-8">
               {scenes.map((scene, i) => (
@@ -449,19 +476,6 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
-
-            {stitchedVideoUrl && (
-              <div className="mt-8">
-                <h2 className="text-xl font-semibold mb-4 text-center">Stitched Cinematic Video</h2>
-                <div className="flex justify-center">
-                  <video
-                    src={stitchedVideoUrl}
-                    controls
-                    className="max-w-full rounded-lg shadow-md"
-                  />
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

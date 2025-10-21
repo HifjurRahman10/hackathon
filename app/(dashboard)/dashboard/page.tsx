@@ -291,10 +291,11 @@ export default function DashboardPage() {
       setScenes(updatedScenes);
       setGeneratingVideos(false);
 
-      // Stitch videos if all are ready
-      if (updatedScenes.every((s: SceneData) => s.videoUrl)) {
-        console.log("All videos ready, starting stitch...");
-        const videoUrls = updatedScenes.map(s => s.videoUrl!);
+      // Stitch videos if at least 2 are ready
+      const successfulVideos = updatedScenes.filter((s: SceneData) => s.videoUrl);
+      if (successfulVideos.length >= 2) {
+        console.log(`${successfulVideos.length} videos ready, starting stitch...`);
+        const videoUrls = successfulVideos.map(s => s.videoUrl!);
         console.log("Video URLs:", videoUrls);
         try {
           const stitchRes = await fetch("/api/stitch", {
@@ -309,7 +310,7 @@ export default function DashboardPage() {
           } else {
             const errorText = await stitchRes.text();
             console.error("Stitching failed:", stitchRes.status, errorText);
-            setError("Video stitching failed. Individual videos are available below.");
+            setError(`Video stitching failed (${stitchRes.status}). Individual videos are available below.`);
           }
         } catch (stitchErr) {
           console.error("Stitch request error:", stitchErr);

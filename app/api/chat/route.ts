@@ -215,7 +215,8 @@ Use this prompt to generate cinematic scene descriptions and video motions that 
       ],
     });
 
-    const text = response.output_text?.trim() || "{}";
+    let text = response.output_text?.trim() || "{}";
+    text = text.replace(/[\x00-\x1F\x7F-\x9F]/g, ""); // remove control characters
     const data = JSON.parse(text);
 
     // Save user message

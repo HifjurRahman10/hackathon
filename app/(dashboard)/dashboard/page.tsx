@@ -429,54 +429,9 @@ export default function DashboardPage() {
             )}
 
             {/* Scene Images & Videos */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-8">
-              {scenes.map((scene, i) => (
-                <div
-                  key={i}
-                  className="relative aspect-square rounded-xl overflow-hidden shadow-md bg-gray-100"
-                >
-                  {scene.videoUrl ? (
-                    <video
-                      src={scene.videoUrl}
-                      controls
-                      autoPlay
-                      loop
-                      muted
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <Image
-                      src={scene.imageUrl}
-                      alt={`Scene ${i + 1}`}
-                      fill
-                      className="object-cover"
-                    />
-                  )}
-                  <span className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
-                    {scene.videoUrl ? (
-                      <>
-                        <Video className="w-3 h-3" />
-                        Scene {i + 1}
-                      </>
-                    ) : (
-                      `Scene ${i + 1}`
-                    )}
-                  </span>
-                  {!scene.videoUrl && generatingVideos && (
-                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                      <div className="text-center text-white">
-                        <Video className="w-8 h-8 mx-auto animate-pulse mb-2" />
-                        <p className="text-xs">Processing...</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {stitchedVideoUrl && (
+            {stitchedVideoUrl ? (
               <div className="mt-8">
-                <h2 className="text-xl font-semibold mb-4 text-center">Stitched Video</h2>
+                <h2 className="text-xl font-semibold mb-4 text-center">Stitched Cinematic Video</h2>
                 <div className="flex justify-center">
                   <video
                     src={stitchedVideoUrl}
@@ -484,6 +439,51 @@ export default function DashboardPage() {
                     className="max-w-full rounded-lg shadow-md"
                   />
                 </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-8">
+                {scenes.map((scene, i) => (
+                  <div
+                    key={i}
+                    className="relative aspect-square rounded-xl overflow-hidden shadow-md bg-gray-100"
+                  >
+                    {scene.videoUrl ? (
+                      <video
+                        src={scene.videoUrl}
+                        controls
+                        autoPlay
+                        loop
+                        muted
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <Image
+                        src={scene.imageUrl}
+                        alt={`Scene ${i + 1}`}
+                        fill
+                        className="object-cover"
+                      />
+                    )}
+                    <span className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
+                      {scene.videoUrl ? (
+                        <>
+                          <Video className="w-3 h-3" />
+                          Scene {i + 1}
+                        </>
+                      ) : (
+                        `Scene ${i + 1}`
+                      )}
+                    </span>
+                    {!scene.videoUrl && generatingVideos && (
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                        <div className="text-center text-white">
+                          <Video className="w-8 h-8 mx-auto animate-pulse mb-2" />
+                          <p className="text-xs">Processing...</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>

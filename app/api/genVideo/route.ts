@@ -102,7 +102,7 @@ export async function POST(req: Request) {
     // Submit video generation request to Wavespeed
     console.log(`Submitting video generation for scene ${sceneId}...`);
     
-    const url = "hhttps://api.wavespeed.ai/api/v3/bytedance/seedance-v1-pro-i2v-480p";
+    const url = "https://api.wavespeed.ai/api/v3/bytedance/seedance-v1-pro-i2v-480p";
     const headers = {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${WAVESPEED_API_KEY}`

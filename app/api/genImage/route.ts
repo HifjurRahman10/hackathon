@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 
 // Initialize OpenAI and Supabase clients
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -20,6 +21,47 @@ async function ensureBucket(name: string) {
   } else if (!existingBucket.public) {
     await supabase.storage.updateBucket(name, { public: true });
   }
+}
+
+// Poll Wavespeed API for image generation status
+async function pollImageStatus(requestId: string): Promise<string> {
+  const maxAttempts = 120; // 2 minutes max (120 * 1 second)
+  let attempts = 0;
+
+  while (attempts < maxAttempts) {
+    const response = await fetch(
+      `https://api.wavespeed.ai/api/v3/predictions/${requestId}/result`,
+      {
+        headers: {
+          "Authorization": `Bearer ${WAVESPEED_API_KEY}`
+        }
+      }
+    );
+
+    const result = await response.json();
+
+    if (response.ok) {
+      const data = result.data;
+      const status = data.status;
+
+      if (status === "completed") {
+        const resultUrl = data.outputs[0];
+        console.log("Image generation completed. URL:", resultUrl);
+        return resultUrl;
+      } else if (status === "failed") {
+        throw new Error(`Image generation failed: ${data.error || "Unknown error"}`);
+      } else {
+        console.log(`Image still processing. Status: ${status}, Attempt: ${attempts + 1}`);
+      }
+    } else {
+      throw new Error(`Polling error: ${response.status}, ${JSON.stringify(result)}`);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+    attempts++;
+  }
+
+  throw new Error("Image generation timeout - exceeded maximum wait time");
 }
 
 export async function POST(req: Request) {
@@ -57,44 +99,107 @@ export async function POST(req: Request) {
     let finalPrompt = prompt;
     let chatId = metadata?.chatId || "default-chat";
 
-    // If scene, include character image
+    // If scene, include character details for consistency
     if (mode === "scene") {
       const { data: characterData } = await supabase
         .from("characters")
-        .select("character_image_url")
+        .select("character_image_url, character_image_prompt, character_name")
         .eq("chat_id", chatId)
         .single();
 
-      if (characterData?.character_image_url) {
-        finalPrompt += ` Include the main character from this image in the scene: ${characterData.character_image_url}`;
+      if (characterData) {
+        // Include character's visual description from the original prompt for better consistency
+        if (characterData.character_image_prompt) {
+          finalPrompt = `Include the main character (${characterData.character_name || "character"}) with these exact visual characteristics: ${characterData.character_image_prompt.substring(0, 500)}... \n\nSCENE: ${finalPrompt}`;
+        } else if (characterData.character_image_url) {
+          finalPrompt += ` Include the main character from reference image: ${characterData.character_image_url}`;
+        }
       }
     }
 
-    // Generate image via OpenAI
-    let aiResp;
-    try {
-      aiResp = await openai.images.generate({
-        model: "gpt-image-1",
+    // Generate image via Wavespeed Seedream V4
+    console.log(`Generating ${mode} image with Wavespeed Seedream V4...`);
+    
+    let imageUrl: string;
+    
+    if (WAVESPEED_API_KEY) {
+      // Use Wavespeed API
+      const wavespeedUrl = "https://api.wavespeed.ai/api/v3/bytedance/seedream-v4";
+      const wavespeedPayload = {
         prompt: finalPrompt,
-        quality: "low",
-        n: 1,
+        size: "2048*2048",
+        enable_base64_output: false,
+        enable_sync_mode: false
+      };
+
+      const submitResponse = await fetch(wavespeedUrl, {
+        method: 'POST',
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${WAVESPEED_API_KEY}`
+        },
+        body: JSON.stringify(wavespeedPayload)
       });
-    } catch (openaiError: any) {
-      console.error("OpenAI API error:", openaiError);
-      return NextResponse.json(
-        { error: openaiError.message || "Failed to generate image" },
-        { status: 502 }
-      );
-    } 
-    const b64 = aiResp.data?.[0]?.b64_json;
-    if (!b64) {
-      return NextResponse.json(
-        { error: "No image data returned from OpenAI" },
-        { status: 502 }
-      );
+
+      if (!submitResponse.ok) {
+        const errorText = await submitResponse.text();
+        console.error("Wavespeed submission error:", errorText);
+        return NextResponse.json(
+          { error: `Failed to submit image generation: ${submitResponse.status}` },
+          { status: 502 }
+        );
+      }
+
+      const submitResult = await submitResponse.json();
+      const requestId = submitResult.data.id;
+      console.log(`Image generation submitted. Request ID: ${requestId}`);
+
+      // Poll for completion
+      try {
+        imageUrl = await pollImageStatus(requestId);
+      } catch (pollError: any) {
+        console.error("Image generation polling error:", pollError);
+        return NextResponse.json(
+          { error: pollError.message || "Image generation failed" },
+          { status: 502 }
+        );
+      }
+    } else {
+      // Fallback to OpenAI if no Wavespeed key
+      console.log("No Wavespeed API key, falling back to OpenAI...");
+      let aiResp;
+      try {
+        aiResp = await openai.images.generate({
+          model: "gpt-image-1",
+          prompt: finalPrompt,
+          quality: "low",
+          n: 1,
+        });
+      } catch (openaiError: any) {
+        console.error("OpenAI API error:", openaiError);
+        return NextResponse.json(
+          { error: openaiError.message || "Failed to generate image" },
+          { status: 502 }
+        );
+      }
+      const b64 = aiResp.data?.[0]?.b64_json;
+      if (!b64) {
+        return NextResponse.json(
+          { error: "No image data returned from OpenAI" },
+          { status: 502 }
+        );
+      }
+      imageUrl = `data:image/png;base64,${b64}`;
     }
 
-    const buffer = Buffer.from(b64, "base64");
+    // Download the image from URL
+    console.log("Downloading image...");
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) {
+      throw new Error("Failed to download image");
+    }
+    const imageArrayBuffer = await imageResponse.arrayBuffer();
+    const buffer = Buffer.from(imageArrayBuffer);
     const timestamp = Date.now();
     const filePath = `${userId}/${chatId}/${mode}_image_${timestamp}.png`;
 

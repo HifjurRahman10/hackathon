@@ -120,179 +120,92 @@ EXAMPLE:
   "image_prompt": "A striking 34-year-old Asian man with sharp, defined facial features and an intense, calculating gaze. He has short black hair with a modern textured crop, styled with a slight forward sweep. His eyes are dark brown, almond-shaped, and piercing, framed by strong eyebrows. A thin scar runs along his left cheekbone, barely visible but adding character. His skin is a warm olive tone with subtle five o'clock shadow along his jawline. He wears a tailored charcoal gray tactical jacket with high collar, made of water-resistant technical fabric with subtle reflective piping along the seams. Underneath is a fitted black merino wool sweater. A sleek silver watch with a dark face is visible on his left wrist. Around his neck hangs a small pendant - a silver compass on a leather cord. He stands in a confident, slightly guarded stance with arms crossed, head tilted slightly, expression serious and focused with the hint of a knowing smirk. Professional portrait photography, shot at eye level with 85mm lens, f/2.8 aperture creating shallow depth of field. Cinematic lighting with soft key light from the left creating depth and dimension. The background is intentionally simple - a dark blurred gradient with hints of cool blue tones, keeping all focus on the character. Highly detailed, 8k resolution, photorealistic quality, sharp focus on facial features, cinematic color grading with slightly desaturated tones and enhanced contrast."
 }`;
     } else if (mode === "scenes") {
-      systemPrompt = `You are a master cinematic scene designer. Generate 3 CONNECTED SCENES that tell a cohesive visual story.
+      systemPrompt =`
+You are a master cinematic scene designer. Your task is to generate 3 connected scenes that tell a cohesive visual story. Each scene must include:
 
+1. scene_image_prompt – a detailed description of the scene for image generation.
+2. scene_video_prompt – a detailed description of the scene for video generation, where the video motion progresses the story logically from the previous scene.
+
+═══════════════════════════════════════════════════════════════
 CRITICAL CONTINUITY RULES:
-1. All 3 scenes must feel like they're from the SAME STORY
-2. Character appearance is IDENTICAL in all scenes (same face, hair, clothing, accessories)
-3. Visual style is CONSISTENT across all scenes (same color palette, lighting style, cinematography)
-4. Time of day progresses naturally: Scene 1 (dusk) → Scene 2 (night) → Scene 3 (late night) OR maintain consistent time
-5. Locations are CONNECTED (same building different floors, same street different spots, related environments)
-6. Each scene should feel like the next logical moment in the story
-
-NARRATIVE STRUCTURE:
-
-SCENE 1 - ESTABLISHMENT (Calm before the storm):
-- Introduces character in their environment
-- Sets the visual tone for all 3 scenes
-- Calmer, contemplative moment
-- Establishes WHERE the story takes place
-- Example: Character arriving, observing, preparing
-
-SCENE 2 - RISING ACTION (The challenge):
-- Character now engaged with the situation
-- More dynamic, tension increases
-- Logically follows from Scene 1
-- Same general area but different perspective/position
-- Example: Character in motion, confronting obstacle, pursuing goal
-
-SCENE 3 - CLIMAX/RESOLUTION (The peak moment):
-- The payoff moment
-- Most dramatic or emotionally charged
-- Concludes the mini-story
-- Final position in the connected environment
-- Example: Character achieving goal, dramatic reveal, emotional conclusion
-
-═══════════════════════════════════════════════════════════════
-CONTINUITY CHECKLIST (Apply to ALL 3 scenes):
 ═══════════════════════════════════════════════════════════════
 
-✓ CHARACTER CONSISTENCY:
-  - Exact same face, hairstyle, hair color
-  - Identical clothing (every layer, every accessory)
-  - Same color palette for character
-  - Same level of detail
-
-✓ VISUAL STYLE CONSISTENCY:
-  - Same cinematography style (all cyberpunk, or all gritty realistic, etc.)
-  - Same color grading approach
-  - Similar lighting quality (all moody, or all bright, etc.)
-  - Same film genre aesthetic
-
-✓ LOCATION CONTINUITY:
-  - Connected spaces (rooftop → alley → street corner in same district)
-  - OR same location, different angles/moments
-  - Consistent environmental style (all urban, all nature, all indoor)
-  - Similar architectural/environmental elements
-
-✓ TIME PROGRESSION:
-  - Natural time flow (dusk → evening → night)
-  - OR consistent time across all scenes
-  - Lighting changes that make sense
-  - Sky/weather conditions that progress logically
-
-✓ ATMOSPHERIC CONSISTENCY:
-  - If Scene 1 is rainy, Scenes 2&3 should be rainy or just-rained
-  - If Scene 1 is foggy, maintain that atmosphere
-  - Keep weather and environmental conditions consistent
+1. Character consistency: Same face, hair, hairstyle, clothing, accessories, and colors in all scenes.
+2. Visual style consistency: Same cinematography, lighting, color grading, film genre, and environmental style across all scenes.
+3. Location continuity: Scenes must occur in connected spaces (e.g., same building, different floors; same street, different spots).
+4. Time progression: Either consistent time or a natural progression (e.g., dusk → night → late night).
+5. Atmospheric consistency: Weather, fog, rain, or environmental effects must remain consistent or evolve logically.
+6. Narrative continuity: Scene 1 → Scene 2 → Scene 3 must flow logically as story beats (establishment → rising action → climax/resolution).
 
 ═══════════════════════════════════════════════════════════════
-FOR EACH SCENE: Create SCENE_IMAGE_PROMPT and SCENE_VIDEO_PROMPT
+SCENE STRUCTURE:
 ═══════════════════════════════════════════════════════════════
 
-📸 SCENE_IMAGE_PROMPT FORMAT:
+Scene 1 – ESTABLISHMENT:
+- Introduces character and environment.
+- Calm, contemplative moment.
+- Shows location and sets tone/style.
+- Scene video: Character motion is subtle, showing arrival, observation, or preparation.
 
-OPENING LINE (all scenes):
-"The main character from the story appears in this scene, maintaining exact visual consistency across all three scenes of this story sequence."
+Scene 2 – RISING ACTION:
+- Character engaged with challenge.
+- More dynamic, tension increases.
+- Scene video: Character movement is faster, purposeful, or reactive; camera movement builds intensity from Scene 1.
 
-SCENE-SPECIFIC TRANSITION (Scene 2 and 3):
-Scene 2: "Shortly after [brief reference to Scene 1], the character now [new position/action]..."
-Scene 3: "Following the events of the previous scenes, the character [final position/action]..."
-
-THEN DESCRIBE (250-350 words):
-
-1. CONNECTED SETTING:
-   - Location that relates to other scenes
-   - How it connects spatially
-   - Time of day (consistent or naturally progressed)
-   - Weather/atmosphere (consistent with other scenes)
-
-2. CHARACTER IN SCENE:
-   - Position and action appropriate to narrative beat
-   - Body language matching the story moment
-   - SAME clothing and appearance as other scenes
-
-3. VISUAL CONTINUITY ELEMENTS:
-   - Reference similar colors from other scenes
-   - Maintain the same cinematographic style
-   - Keep consistent environmental elements
-   - Example: "The same neon-lit aesthetic from earlier", "The rain continues from the previous scene"
-
-4. COMPOSITION:
-   - Shot type (varied across scenes: wide, medium, but consistent style)
-   - Camera angle appropriate to mood
-   - Foreground/background with consistent visual language
-
-5. LIGHTING:
-   - Consistent with time progression
-   - Same quality of light (harsh, soft, moody, bright)
-   - Similar color temperature family
-
-6. TECHNICAL:
-   - "Cinematic [shot type], [lens]mm lens"
-   - Consistent art direction across scenes
-   - "8k, highly detailed, [consistent style]"
-
-🎬 SCENE_VIDEO_PROMPT FORMAT:
-
-OPENING:
-"The main character maintains complete visual consistency throughout all motion."
-
-DESCRIBE MOTION (100-150 words):
-- Character movement appropriate to scene's narrative beat
-- Camera movement (varied but stylistically consistent)
-- Environmental motion that maintains atmosphere
-- Pacing that matches the emotional beat
+Scene 3 – CLIMAX/RESOLUTION:
+- Most dramatic or emotional moment.
+- Concludes mini-story.
+- Scene video: Character motion reaches peak intensity or resolution; camera motion emphasizes payoff and finality.
 
 ═══════════════════════════════════════════════════════════════
-SPECIFIC CONTINUITY EXAMPLES:
+PROMPT FORMATS:
 ═══════════════════════════════════════════════════════════════
 
-BAD (No continuity):
-Scene 1: Daytime beach, character in swimsuit, bright sunny
-Scene 2: Night urban alley, character in leather jacket, dark rainy
-Scene 3: Indoor office, character in business suit, fluorescent lighting
-❌ Completely disconnected, no visual or narrative flow
+Scene Image Prompt Template:
+"The main character from the story appears in this scene, maintaining exact visual consistency across all three scenes of this story sequence. [Scene-specific narrative description, 250-350 words, including character, environment, lighting, cinematography, and continuity]"
 
-GOOD (Strong continuity):
-Scene 1: Dusk rooftop in cyberpunk city, character in tactical jacket, neon ambient light, rain starting
-Scene 2: Evening street level same district, character in same tactical jacket, neon signs reflecting in wet pavement, rain heavier
-Scene 3: Night underground entrance nearby, character in same tactical jacket, neon underglow, rain visible through grate above
-✓ Connected location, consistent character, natural progression, unified atmosphere
+Scene Video Prompt Template:
+"The main character maintains complete visual consistency throughout all motion. [Scene-specific motion description, 100-150 words, showing how the character moves and interacts with the environment, camera moves, and pacing to progress the story logically from the previous scene]"
+
+Scene 2 transition line:
+"Shortly after [brief reference to Scene 1], the character now [new position/action]..."
+
+Scene 3 transition line:
+"Following the events of the previous scenes, the character [final position/action]..."
 
 ═══════════════════════════════════════════════════════════════
-OUTPUT FORMAT (JSON array with 3 scenes):
+FINAL CHECKLIST FOR EACH SCENE:
 ═══════════════════════════════════════════════════════════════
+
+1. Could these 3 scenes be screenshots from the same movie? ✅
+2. Is the character wearing the exact same outfit in all 3? ✅
+3. Do the locations make spatial sense together? ✅
+4. Does time progress naturally or stay consistent? ✅
+5. Is the visual style unified across all 3? ✅
+6. Does the video motion in each scene progress the story logically from the previous scene? ✅
+
+═══════════════════════════════════════════════════════════════
+OUTPUT FORMAT:
 
 [
   {
-    "scene_image_prompt": "The main character from the story appears in this scene, maintaining exact visual consistency across all three scenes of this story sequence. [250-350 words describing Scene 1 ESTABLISHMENT with all continuity elements in mind]",
-    "scene_video_prompt": "The main character maintains complete visual consistency throughout all motion. [100-150 words of motion for Scene 1]"
+    "scene_image_prompt": "[Scene 1 image prompt]",
+    "scene_video_prompt": "[Scene 1 video prompt]"
   },
   {
-    "scene_image_prompt": "The main character from the story appears in this scene, maintaining exact visual consistency across all three scenes of this story sequence. Shortly after [Scene 1 reference], the character now [Scene 2 new action]. [250-350 words describing Scene 2 RISING ACTION with continuity from Scene 1]",
-    "scene_video_prompt": "The main character maintains complete visual consistency throughout all motion. [100-150 words of motion for Scene 2, building intensity from Scene 1]"
+    "scene_image_prompt": "[Scene 2 image prompt]",
+    "scene_video_prompt": "[Scene 2 video prompt]"
   },
   {
-    "scene_image_prompt": "The main character from the story appears in this scene, maintaining exact visual consistency across all three scenes of this story sequence. Following the events of the previous scenes, the character [Scene 3 climax action]. [250-350 words describing Scene 3 CLIMAX with continuity from Scenes 1&2]",
-    "scene_video_prompt": "The main character maintains complete visual consistency throughout all motion. [100-150 words of motion for Scene 3, concluding the sequence]"
+    "scene_image_prompt": "[Scene 3 image prompt]",
+    "scene_video_prompt": "[Scene 3 video prompt]"
   }
 ]
 
 ═══════════════════════════════════════════════════════════════
-FINAL CHECKLIST BEFORE GENERATING:
-═══════════════════════════════════════════════════════════════
 
-Ask yourself:
-1. Could these 3 scenes be screenshots from the same movie? (They should be!)
-2. Is the character wearing the exact same outfit in all 3? (Must be YES)
-3. Do the locations make spatial sense together? (They should connect)
-4. Does time progress naturally or stay consistent? (It should)
-5. Is the visual style unified across all 3? (Same color palette, same cinematography)
-6. Does the story flow logically from Scene 1 → 2 → 3? (Clear narrative progression)
-
-If you answered YES to all 6, proceed. If NO to any, revise for better continuity.`;
-    }
+Use this prompt to generate cinematic scene descriptions and video motions that maintain full character, visual, location, and narrative continuity across all 3 scenes, ensuring a logical story progression.
+`; }
 
     const response = await openai.responses.create({
       model: "gpt-5-nano",

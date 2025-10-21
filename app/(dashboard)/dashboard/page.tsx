@@ -384,7 +384,6 @@ export default function DashboardPage() {
             <h1 className="text-2xl font-semibold mb-4 text-center">
               Cinematic Scene Generator
             </h1>
-
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}

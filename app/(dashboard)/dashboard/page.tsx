@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { getBrowserSupabase } from "@/lib/auth/supabase-browser";
 import { Plus, MessageSquare, Trash2, Video } from "lucide-react";
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile } from '@ffmpeg/util';
 
 interface Chat {
   id: string;
@@ -26,6 +28,8 @@ export default function DashboardPage() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [hasExistingScenes, setHasExistingScenes] = useState(false);
   const [generatingVideos, setGeneratingVideos] = useState(false);
+  const [stitchedVideoUrl, setStitchedVideoUrl] = useState<string | null>(null);
+  const [stitching, setStitching] = useState(false);
 
   useEffect(() => {
     async function fetchUser() {
@@ -278,19 +282,54 @@ export default function DashboardPage() {
       );
 
       // 7️⃣ Update scenes with video URLs
-      setScenes(prevScenes => 
-        prevScenes.map((scene, idx) => {
-          const result = videoResults.find(r => r?.index === idx);
-          return result ? { ...scene, videoUrl: result.videoUrl } : scene;
-        })
-      );
+      const updatedScenes = scenes.map((scene, idx) => {
+        const result = videoResults.find(r => r?.index === idx);
+        return result ? { ...scene, videoUrl: result.videoUrl } : scene;
+      });
+      setScenes(updatedScenes);
       setGeneratingVideos(false);
+
+      // 8️⃣ Automatically stitch videos if all are ready
+      if (updatedScenes.every((s: SceneData) => s.videoUrl)) {
+        await stitchVideos();
+      }
 
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Something went wrong");
       setLoading(false);
       setGeneratingVideos(false);
+    }
+  }
+
+  async function stitchVideos() {
+    if (scenes.some(s => !s.videoUrl)) return;
+    setStitching(true);
+    try {
+      const ffmpeg = new FFmpeg();
+      await ffmpeg.load({
+        coreURL: '/ffmpeg-core.js',
+        wasmURL: '/ffmpeg-core.wasm',
+      });
+      // Write input files
+      for (let i = 0; i < scenes.length; i++) {
+        const response = await fetch(scenes[i].videoUrl!);
+        const blob = await response.blob();
+        await ffmpeg.writeFile(`input${i}.mp4`, await fetchFile(blob));
+      }
+      // Create concat file
+      const concatList = scenes.map((_, i) => `file 'input${i}.mp4'`).join('\n');
+      await ffmpeg.writeFile('concat.txt', concatList);
+      // Run concat
+      await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', 'concat.txt', '-c', 'copy', 'output.mp4']);
+      // Read output
+      const data = await ffmpeg.readFile('output.mp4');
+      const url = URL.createObjectURL(new Blob([data as any], { type: 'video/mp4' }));
+      setStitchedVideoUrl(url);
+    } catch (err) {
+      console.error('Stitching failed:', err);
+    } finally {
+      setStitching(false);
     }
   }
 
@@ -370,6 +409,8 @@ export default function DashboardPage() {
               </button>
             </div>
 
+
+
             {error && (
               <p className="text-red-600 text-center mt-4 font-medium">{error}</p>
             )}
@@ -378,6 +419,13 @@ export default function DashboardPage() {
               <p className="text-blue-600 text-center mt-4 font-medium flex items-center justify-center gap-2">
                 <Video className="w-5 h-5 animate-pulse" />
                 Generating videos in background...
+              </p>
+            )}
+
+            {stitching && (
+              <p className="text-green-600 text-center mt-4 font-medium flex items-center justify-center gap-2">
+                <Video className="w-5 h-5 animate-pulse" />
+                Stitching videos...
               </p>
             )}
 
@@ -426,6 +474,19 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
+
+            {stitchedVideoUrl && (
+              <div className="mt-8">
+                <h2 className="text-xl font-semibold mb-4 text-center">Stitched Video</h2>
+                <div className="flex justify-center">
+                  <video
+                    src={stitchedVideoUrl}
+                    controls
+                    className="max-w-full rounded-lg shadow-md"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

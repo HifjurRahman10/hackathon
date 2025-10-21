@@ -43,8 +43,7 @@ export async function POST(req: Request) {
     let systemPrompt = "";
 
     if (mode === "character") {
-      systemPrompt = systemPrompt = `
-You are an expert character designer specializing in creating vivid, cinematic characters for visual storytelling. Your role is to transform user ideas into rich, detailed character concepts optimized for AI image generation.
+      systemPrompt = `You are an expert character designer specializing in creating vivid, cinematic characters for visual storytelling. Your role is to transform user ideas into rich, detailed character concepts optimized for AI image generation.
 
 TASK: Generate ONE main character based on the user's input.
 
@@ -115,11 +114,9 @@ EXAMPLE OUTPUT STRUCTURE:
   "image_prompt": "A striking 32-year-old woman with piercing emerald green eyes and sharp, angular features, shoulder-length platinum blonde hair styled in a sleek undercut with the longer side swept dramatically across her face. She has porcelain skin with a small scar crossing her left eyebrow. She wears a tailored midnight blue tactical jacket made of high-tech breathable fabric with silver geometric patterns along the shoulders, over a form-fitting black turtleneck. Dark charcoal cargo pants with reinforced knees and multiple utility pockets, secured with a leather belt featuring a holographic buckle. Matte black combat boots with metallic accents. On her wrists are sleek augmented reality interfaces glowing with soft cyan light. A silver pendant hangs from her neck. She stands in a confident, slightly aggressive stance with arms crossed, expression serious and calculating with a hint of determination in her eyes. Cinematic lighting with cool blue tones and dramatic side lighting creating strong shadows. Shot with 85mm lens, shallow depth of field, photorealistic style, highly detailed, 8k quality, professional photography, cyberpunk aesthetic with clean modern architecture blurred in background."
 }
 
-Remember: The image_prompt is the MOST CRITICAL field. It must be detailed enough that an AI can generate a consistent, recognizable character that will appear in multiple scenes. Every detail matters.
-`;
+Remember: The image_prompt is the MOST CRITICAL field. It must be detailed enough that an AI can generate a consistent, recognizable character that will appear in multiple scenes. Every detail matters.`;
     } else if (mode === "scenes") {
-      systemPrompt = systemPrompt = `
-You are an expert cinematic scene designer and visual storytelling director. Your role is to create a compelling 3-scene narrative that maintains ABSOLUTE CHARACTER CONSISTENCY with the provided character image.
+      systemPrompt = `You are an expert cinematic scene designer and visual storytelling director. Your role is to create a compelling 3-scene narrative that maintains ABSOLUTE CHARACTER CONSISTENCY with the provided character image.
 
 CRITICAL PRIORITY: The main character MUST appear exactly as shown in the reference image in ALL scenes. Character consistency is NON-NEGOTIABLE.
 
@@ -139,9 +136,9 @@ FOR EACH SCENE YOU MUST CREATE TWO PROMPTS:
 1. SCENE_IMAGE_PROMPT (for still image generation)
 2. SCENE_VIDEO_PROMPT (for video generation from that image)
 
-───────────────────────────────────────────────────────────
+─────────────────────────────────────────────────────────────
 📸 SCENE_IMAGE_PROMPT GUIDELINES:
-───────────────────────────────────────────────────────────
+─────────────────────────────────────────────────────────────
 
 MANDATORY OPENING STATEMENT:
 Every scene_image_prompt MUST begin with:
@@ -190,9 +187,9 @@ F. TECHNICAL QUALITY TAGS:
 
 LENGTH: 200-350 words per scene_image_prompt
 
-───────────────────────────────────────────────────────────
+─────────────────────────────────────────────────────────────
 🎬 SCENE_VIDEO_PROMPT GUIDELINES:
-───────────────────────────────────────────────────────────
+─────────────────────────────────────────────────────────────
 
 This describes the MOTION and ANIMATION that will bring the still image to life.
 
@@ -232,9 +229,9 @@ E. EMOTIONAL ARC:
 
 LENGTH: 100-200 words per scene_video_prompt
 
-───────────────────────────────────────────────────────────
+─────────────────────────────────────────────────────────────
 🎭 NARRATIVE STRUCTURE REQUIREMENTS:
-───────────────────────────────────────────────────────────
+─────────────────────────────────────────────────────────────
 
 Your 3 scenes must follow a clear story arc:
 
@@ -256,9 +253,9 @@ SCENE 3 - CLIMAX/RESOLUTION:
 - Provides satisfying narrative payoff
 - Can be triumphant, tragic, mysterious, or open-ended
 
-───────────────────────────────────────────────────────────
+─────────────────────────────────────────────────────────────
 ⚠️ CRITICAL CONSISTENCY RULES:
-───────────────────────────────────────────────────────────
+─────────────────────────────────────────────────────────────
 
 1. CHARACTER APPEARANCE:
    - NEVER change: face, hairstyle, clothing, distinctive features
@@ -280,9 +277,9 @@ SCENE 3 - CLIMAX/RESOLUTION:
    - Same level of realism or stylization
    - Consistent color grading approach (unless narrative demands it)
 
-───────────────────────────────────────────────────────────
+─────────────────────────────────────────────────────────────
 📋 OUTPUT FORMAT (STRICT JSON):
-───────────────────────────────────────────────────────────
+─────────────────────────────────────────────────────────────
 
 Return ONLY this JSON array with exactly 3 scene objects:
 
@@ -315,20 +312,32 @@ FINAL CHECKLIST - BEFORE RETURNING YOUR RESPONSE:
 ✓ Valid JSON array format with exactly 3 objects
 ✓ Character is the clear focus in all scenes
 
-Remember: The AI image/video models MUST be able to maintain the exact same character across all scenes. Every detail in your prompts should reinforce character consistency while telling a compelling visual story.
-`;
+Remember: The AI image/video models MUST be able to maintain the exact same character across all scenes. Every detail in your prompts should reinforce character consistency while telling a compelling visual story.`;
     }
 
-    const response = await openai.responses.create({
-      model: "gpt-5-nano",
-      input: [
+    // FIX: Use correct OpenAI API method
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o", // Use appropriate model
+      messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: prompt },
       ],
+      response_format: { type: "json_object" }, // Ensure JSON response
     });
 
-    const text = response.output_text?.trim() || "{}";
-    const data = JSON.parse(text);
+    const text = response.choices[0]?.message?.content?.trim() || "{}";
+    console.log("OpenAI Response:", text); // Debug logging
+    
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (parseError) {
+      console.error("JSON Parse Error:", parseError, "Raw text:", text);
+      return NextResponse.json(
+        { error: "Failed to parse AI response" },
+        { status: 500 }
+      );
+    }
 
     // Save user message
     await supabase.from("messages").insert({
@@ -364,9 +373,22 @@ Remember: The AI image/video models MUST be able to maintain the exact same char
     }
 
     // Save scenes to database
-    if (mode === "scenes" && Array.isArray(data)) {
+    if (mode === "scenes") {
+      // FIX: Handle both object and array responses
+      let scenesArray = Array.isArray(data) ? data : data.scenes || [];
+      
+      console.log("Scenes array:", scenesArray); // Debug logging
+      
+      if (!Array.isArray(scenesArray) || scenesArray.length === 0) {
+        console.error("Invalid scenes data structure:", data);
+        return NextResponse.json(
+          { error: "AI did not return valid scene data" },
+          { status: 500 }
+        );
+      }
+
       const scenesWithIds = await Promise.all(
-        data.map(async (scene, index) => {
+        scenesArray.map(async (scene: any, index: number) => {
           const { data: sceneData, error: sceneError } = await supabase
             .from("scenes")
             .insert({
@@ -391,6 +413,5 @@ Remember: The AI image/video models MUST be able to maintain the exact same char
       { error: err.message || "Internal server error" },
       { status: 500 }
     );
-    
   }
 }

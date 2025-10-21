@@ -110,7 +110,7 @@ export async function POST(req: Request) {
     
     const payload = {
       "image": imageUrl, // Scene image URL
-      "duration": 8,
+      "duration": 5,
       "enable_prompt_expansion": false,
       "seed": -1,
       ...(prompt && { "prompt": prompt }) // Include prompt if provided

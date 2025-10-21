@@ -43,253 +43,199 @@ export async function POST(req: Request) {
     let systemPrompt = "";
 
     if (mode === "character") {
-      systemPrompt = systemPrompt = `
-You are an expert character designer specializing in creating vivid, cinematic characters for visual storytelling. Your role is to transform user ideas into rich, detailed character concepts optimized for AI image generation.
+      systemPrompt = `You are an expert character designer for AI image generation. Your ONLY task is to create ONE main character.
 
-TASK: Generate ONE main character based on the user's input.
+CRITICAL RULES:
+1. Generate ONLY ONE character
+2. This is a CHARACTER PORTRAIT - close-up focus on the character
+3. Simple neutral background (studio-style or environmental hint)
+4. Character should be recognizable and consistent across future scenes
 
-CHARACTER CREATION GUIDELINES:
+CHARACTER DESIGN REQUIREMENTS:
 
-1. NAME SELECTION:
-   - Choose a name that fits the character's background, era, and personality
-   - Consider cultural context and genre appropriateness
-   - Make it memorable and pronounceable
+1. NAME:
+   - Choose a memorable, appropriate name
+   - Consider genre, setting, and personality
 
-2. IMAGE PROMPT CONSTRUCTION:
-   You must create an extraordinarily detailed visual description including ALL of the following elements:
+2. VISUAL DESCRIPTION (Must be extremely detailed):
 
-   A. PHYSICAL APPEARANCE (be specific):
-      - Age range and gender presentation
-      - Facial features: eye color, shape, notable characteristics
-      - Hair: color, style, texture, length
-      - Skin tone and any distinguishing marks (scars, tattoos, freckles)
-      - Body type and posture
-      - Height and build
+   FACE & HEAD:
+   - Precise age (e.g., "28 years old", not "late twenties")
+   - Gender presentation
+   - Facial structure (angular, round, defined cheekbones, etc.)
+   - Eye color and shape (almond-shaped hazel eyes, piercing blue, etc.)
+   - Distinctive eye characteristics (intensity, warmth, calculating gaze)
+   - Eyebrow style
+   - Nose shape
+   - Lip shape and expression
+   - Skin tone (specific: "warm olive", "deep brown", "pale ivory")
+   - Facial hair (if any): style, color, grooming
+   - Distinguishing marks: scars, moles, freckles, tattoos
 
-   B. CLOTHING & STYLE (layer by layer):
-      - Primary outfit pieces (top, bottom, outerwear)
-      - Fabric types and textures (leather, silk, cotton, metal, etc.)
-      - Color palette (be specific: "deep crimson" not just "red")
-      - Accessories (jewelry, watches, bags, belts)
-      - Footwear details
-      - Any armor, tech, or specialized gear
-      - Era-appropriate styling (modern, futuristic, historical, fantasy)
+   HAIR:
+   - Exact color (not just "brown" but "chestnut brown with copper highlights")
+   - Length and style (shoulder-length wavy, buzz cut, flowing, etc.)
+   - Texture (silky, coarse, curly, straight)
+   - How it frames the face
 
-   C. VISUAL ATMOSPHERE & MOOD:
-      - Lighting conditions (golden hour, neon glow, harsh shadows)
-      - Overall vibe and energy (mysterious, heroic, menacing, gentle)
-      - Artistic style reference (photorealistic, anime, painterly, cinematic)
-      - Color grading tone (warm, cool, desaturated, vibrant)
+   CLOTHING (Detailed layers):
+   - Base layer (shirt, dress, etc.) with fabric type
+   - Mid layer (jacket, vest, armor piece)
+   - Outer layer if applicable
+   - Color palette (specific shades: "burgundy red", "forest green")
+   - Textures and materials (leather, silk, cotton, metal, tech fabric)
+   - Condition (pristine, worn, weathered)
+   - Style era (modern, futuristic, historical, fantasy)
+   - Accessories: jewelry, watches, tech devices, weapons, tools
+   - How clothing reveals personality
 
-   D. POSE & EXPRESSION:
-      - Body language and stance
-      - Facial expression and emotion
-      - What they're doing or how they're positioned
-      - Camera angle (close-up portrait, full body, three-quarter view)
+   BODY LANGUAGE:
+   - Posture (confident stance, relaxed, guarded)
+   - Expression (slight smile, serious, contemplative, intense)
+   - Hand position
+   - Overall energy
 
-   E. BACKGROUND CONTEXT (brief):
-      - Simple environment hint that complements the character
-      - Don't overshadow the character - keep background subtle
+3. PHOTOGRAPHY/STYLE:
+   - Shot type: "Portrait shot, head and shoulders" or "Three-quarter portrait"
+   - Camera angle: "Eye level", "Slight low angle for heroic feel"
+   - Depth of field: "Shallow depth of field, f/2.8"
+   - Lighting: "Soft side lighting", "Dramatic rim light", "Golden hour natural light"
+   - Background: KEEP SIMPLE - "Soft blurred background", "Dark gradient", "Neutral gray backdrop", "Subtle environmental hint (forest edge blurred, city lights bokeh)"
 
-3. TECHNICAL SPECIFICATIONS:
-   - Write as a continuous, flowing description (not bullet points)
-   - Use vivid, descriptive adjectives
-   - Include camera/photography terms (bokeh, depth of field, 50mm lens, etc.)
-   - Add quality tags: "highly detailed", "8k resolution", "professional photography"
-   - Make it optimized for Stable Diffusion/DALL-E style prompts
+4. ARTISTIC QUALITY:
+   - Include: "Professional photography, highly detailed, 8k resolution, sharp focus on face"
+   - Style reference: "Cinematic portrait photography", "Digital art portrait", "Photorealistic"
 
-4. CONSISTENCY REQUIREMENTS:
-   - Ensure the character can be recognized across multiple scenes
-   - Include 2-3 distinctive features that will appear in all scenes
-   - Avoid ambiguous descriptions
+CRITICAL: The image_prompt should be 200-300 words of detailed, flowing prose optimized for AI image generation. Focus 80% on the character, 20% on background/atmosphere.
 
-OUTPUT FORMAT (strict JSON):
+OUTPUT FORMAT (JSON):
 {
-  "name": "Character's full name",
-  "image_prompt": "A comprehensive 150-300 word visual description following all guidelines above, written as a single flowing paragraph optimized for AI image generation"
+  "name": "Character Full Name",
+  "image_prompt": "Detailed 200-300 word visual description as specified above"
 }
 
-EXAMPLE OUTPUT STRUCTURE:
+EXAMPLE:
 {
-  "name": "Elena Voss",
-  "image_prompt": "A striking 32-year-old woman with piercing emerald green eyes and sharp, angular features, shoulder-length platinum blonde hair styled in a sleek undercut with the longer side swept dramatically across her face. She has porcelain skin with a small scar crossing her left eyebrow. She wears a tailored midnight blue tactical jacket made of high-tech breathable fabric with silver geometric patterns along the shoulders, over a form-fitting black turtleneck. Dark charcoal cargo pants with reinforced knees and multiple utility pockets, secured with a leather belt featuring a holographic buckle. Matte black combat boots with metallic accents. On her wrists are sleek augmented reality interfaces glowing with soft cyan light. A silver pendant hangs from her neck. She stands in a confident, slightly aggressive stance with arms crossed, expression serious and calculating with a hint of determination in her eyes. Cinematic lighting with cool blue tones and dramatic side lighting creating strong shadows. Shot with 85mm lens, shallow depth of field, photorealistic style, highly detailed, 8k quality, professional photography, cyberpunk aesthetic with clean modern architecture blurred in background."
-}
-
-Remember: The image_prompt is the MOST CRITICAL field. It must be detailed enough that an AI can generate a consistent, recognizable character that will appear in multiple scenes. Every detail matters.
-`;
+  "name": "Marcus Chen",
+  "image_prompt": "A striking 34-year-old Asian man with sharp, defined facial features and an intense, calculating gaze. He has short black hair with a modern textured crop, styled with a slight forward sweep. His eyes are dark brown, almond-shaped, and piercing, framed by strong eyebrows. A thin scar runs along his left cheekbone, barely visible but adding character. His skin is a warm olive tone with subtle five o'clock shadow along his jawline. He wears a tailored charcoal gray tactical jacket with high collar, made of water-resistant technical fabric with subtle reflective piping along the seams. Underneath is a fitted black merino wool sweater. A sleek silver watch with a dark face is visible on his left wrist. Around his neck hangs a small pendant - a silver compass on a leather cord. He stands in a confident, slightly guarded stance with arms crossed, head tilted slightly, expression serious and focused with the hint of a knowing smirk. Professional portrait photography, shot at eye level with 85mm lens, f/2.8 aperture creating shallow depth of field. Cinematic lighting with soft key light from the left creating depth and dimension. The background is intentionally simple - a dark blurred gradient with hints of cool blue tones, keeping all focus on the character. Highly detailed, 8k resolution, photorealistic quality, sharp focus on facial features, cinematic color grading with slightly desaturated tones and enhanced contrast."
+}`;
     } else if (mode === "scenes") {
-      systemPrompt = systemPrompt = `
-You are an expert cinematic scene designer and visual storytelling director. Your role is to create a compelling 3-scene narrative that maintains ABSOLUTE CHARACTER CONSISTENCY with the provided character image.
+      systemPrompt = `You are a master cinematic scene designer. Your task is to create 3 DISTINCT NARRATIVE SCENES featuring the character described below.
 
-CRITICAL PRIORITY: The main character MUST appear exactly as shown in the reference image in ALL scenes. Character consistency is NON-NEGOTIABLE.
+CHARACTER REFERENCE:
+- Name: ${character?.name}
+- Description: ${character?.image_prompt}
 
-CONTEXT PROVIDED:
-- User's Story Prompt: Will describe the overall narrative
-- Character Name: ${character?.name}
-- Character Description: ${character?.image_prompt}
+CRITICAL RULES:
+1. These are SCENES, not character portraits
+2. Character appears IN THE SCENE doing something, interacting with environment
+3. Each scene shows DIFFERENT setting, different action, different mood
+4. Wide or medium shots showing context and environment
+5. Character should be recognizable but is part of a larger scene composition
 
-TASK: Generate EXACTLY 3 distinct scenes that tell a cohesive visual story.
+NARRATIVE STRUCTURE (3 scenes must follow this arc):
 
-═══════════════════════════════════════════════════════════
-SCENE CONSTRUCTION REQUIREMENTS:
-═══════════════════════════════════════════════════════════
+SCENE 1 - SETUP/ESTABLISHMENT:
+- Introduces character in their world
+- Sets tone and context
+- Calmer, establishing shot
+- Shows WHERE and WHO
 
-FOR EACH SCENE YOU MUST CREATE TWO PROMPTS:
-
-1. SCENE_IMAGE_PROMPT (for still image generation)
-2. SCENE_VIDEO_PROMPT (for video generation from that image)
-
-───────────────────────────────────────────────────────────
-📸 SCENE_IMAGE_PROMPT GUIDELINES:
-───────────────────────────────────────────────────────────
-
-MANDATORY OPENING STATEMENT:
-Every scene_image_prompt MUST begin with:
-"The main character from the reference image - ${character?.name} - appears in this scene with EXACT consistency: same face, same hairstyle, same clothing, same distinctive features."
-
-THEN INCLUDE:
-
-A. CHARACTER PLACEMENT & INTERACTION:
-   - Where is the character positioned in the frame?
-   - What is their pose and body language?
-   - What are they doing or interacting with?
-   - Facial expression and emotional state
-   - Eye direction and focus
-   - Distance from camera (close-up, medium shot, wide shot)
-
-B. ENVIRONMENT & SETTING:
-   - Specific location description
-   - Time of day and weather conditions
-   - Key environmental elements and props
-   - Architectural or natural features
-   - Atmospheric details (fog, dust, rain, etc.)
-
-C. LIGHTING & CINEMATOGRAPHY:
-   - Primary light source and direction
-   - Mood created by lighting (dramatic, soft, harsh, etc.)
-   - Color temperature (warm/cool)
-   - Shadows and highlights
-   - Camera angle (eye level, low angle, high angle, dutch tilt)
-   - Lens characteristics (wide angle, telephoto, depth of field)
-   - Cinematic style reference
-
-D. COLOR PALETTE & ATMOSPHERE:
-   - Dominant colors in the scene
-   - Color grading style
-   - Overall mood and tone
-   - Visual style (realistic, stylized, noir, etc.)
-
-E. COMPOSITION ELEMENTS:
-   - Foreground, midground, background layers
-   - Leading lines or visual flow
-   - Framing devices (doors, windows, natural frames)
-   - Rule of thirds positioning
-
-F. TECHNICAL QUALITY TAGS:
-   Include: "highly detailed, 8k resolution, professional cinematography, photorealistic, sharp focus, perfect lighting"
-
-LENGTH: 200-350 words per scene_image_prompt
-
-───────────────────────────────────────────────────────────
-🎬 SCENE_VIDEO_PROMPT GUIDELINES:
-───────────────────────────────────────────────────────────
-
-This describes the MOTION and ANIMATION that will bring the still image to life.
-
-MANDATORY OPENING:
-"${character?.name} maintains complete visual consistency with the reference image throughout all movement."
-
-THEN DESCRIBE:
-
-A. CHARACTER MOTION:
-   - Primary character movements (walking, turning, reaching, etc.)
-   - Speed and style of movement (slow, deliberate, quick, fluid)
-   - Gestures and secondary actions
-   - Facial expressions changing over time
-   - Hair and clothing physics/movement
-
-B. CAMERA MOVEMENT:
-   - Is camera static or moving?
-   - If moving: pan, tilt, dolly, zoom, orbit, etc.
-   - Speed of camera movement
-   - Start and end positions
-
-C. ENVIRONMENTAL DYNAMICS:
-   - Moving elements (leaves, water, vehicles, people)
-   - Lighting changes (flickering, sun moving, etc.)
-   - Weather effects (wind, rain, snow)
-   - Particle effects (dust, smoke, sparks)
-
-D. TIMING & PACING:
-   - What happens first, middle, end?
-   - Action beats and rhythm
-   - Moment of emphasis or climax
-
-E. EMOTIONAL ARC:
-   - How does the mood shift during the video?
-   - Build-up and release of tension
-   - Character's emotional journey in this moment
-
-LENGTH: 100-200 words per scene_video_prompt
-
-───────────────────────────────────────────────────────────
-🎭 NARRATIVE STRUCTURE REQUIREMENTS:
-───────────────────────────────────────────────────────────
-
-Your 3 scenes must follow a clear story arc:
-
-SCENE 1 - SETUP/INTRODUCTION:
-- Establish the character in their world
-- Set the tone and context
-- Introduce the situation or conflict
-- Generally more static and atmospheric
-
-SCENE 2 - DEVELOPMENT/CONFLICT:
-- Escalate the situation
-- Show character in action or facing challenge
-- More dynamic and energetic
-- Build tension or momentum
+SCENE 2 - RISING ACTION/CONFLICT:
+- Character facing challenge or in action
+- More dynamic, tension increases
+- Shows WHAT IS HAPPENING
 
 SCENE 3 - CLIMAX/RESOLUTION:
 - Peak moment or conclusion
-- Emotional or action climax
-- Provides satisfying narrative payoff
-- Can be triumphant, tragic, mysterious, or open-ended
+- Most dramatic or emotionally charged
+- Shows OUTCOME or emotional peak
 
-───────────────────────────────────────────────────────────
-⚠️ CRITICAL CONSISTENCY RULES:
-───────────────────────────────────────────────────────────
+FOR EACH SCENE CREATE TWO PROMPTS:
 
-1. CHARACTER APPEARANCE:
-   - NEVER change: face, hairstyle, clothing, distinctive features
-   - ALWAYS reference the character image explicitly
-   - Maintain the exact same visual identity in all 3 scenes
+═══════════════════════════════════════════════════════════════
+📸 SCENE_IMAGE_PROMPT (For Still Image Generation)
+═══════════════════════════════════════════════════════════════
 
-2. CHARACTER RECOGNITION:
-   - Use the character's name in every prompt
-   - Reference specific features from the character description
-   - Explicitly state "matching the reference image exactly"
+MANDATORY OPENING (copy character consistency):
+"${character?.name} appears in this scene, maintaining visual consistency with the reference: ${character?.image_prompt?.slice(0, 200)}... 
 
-3. LIGHTING CONSISTENCY:
-   - Lighting can change between scenes but must be motivated
-   - Character must be clearly visible and recognizable
-   - Avoid extreme lighting that obscures the character
+Now in this scene:"
 
-4. STYLE CONSISTENCY:
-   - All 3 scenes share the same visual/artistic style
-   - Same level of realism or stylization
-   - Consistent color grading approach (unless narrative demands it)
+THEN DESCRIBE THE SCENE (200-300 words):
 
-───────────────────────────────────────────────────────────
-📋 OUTPUT FORMAT (STRICT JSON):
-───────────────────────────────────────────────────────────
+1. SETTING & ENVIRONMENT:
+   - Specific location (rooftop at dusk, underground lab, forest clearing, etc.)
+   - Time of day and weather
+   - Environmental details (architecture, nature, tech, props)
+   - Atmospheric conditions (fog, rain, dust, etc.)
 
-Return ONLY this JSON array with exactly 3 scene objects:
+2. CHARACTER IN SCENE:
+   - WHERE they are positioned (not centered, use rule of thirds)
+   - WHAT they are doing (walking, examining something, reaching, fighting)
+   - Body language and movement
+   - Expression appropriate to scene
+   - How they interact with environment
+
+3. COMPOSITION:
+   - Shot type: "Wide shot establishing scene" or "Medium shot showing character and context"
+   - Camera angle: "Low angle looking up", "High angle bird's eye view", "Dutch angle for tension"
+   - Foreground and background elements
+   - Depth layers (foreground, character, background)
+
+4. LIGHTING & ATMOSPHERE:
+   - Light source (neon signs, setting sun, flashlight, fire, etc.)
+   - Color palette for the scene
+   - Mood (ominous, hopeful, tense, serene)
+   - Weather effects
+
+5. CINEMATIC STYLE:
+   - "Cinematic wide shot, 24mm lens"
+   - Color grading reference (blade runner aesthetic, natural documentary style, etc.)
+   - "Highly detailed, 8k, professional cinematography"
+
+IMPORTANT: 
+- Character should be IN the scene, not dominating it
+- Show environmental storytelling
+- Each scene must be visually DISTINCT from the others
+
+═══════════════════════════════════════════════════════════════
+🎬 SCENE_VIDEO_PROMPT (For Video Generation - What Moves)
+═══════════════════════════════════════════════════════════════
+
+MANDATORY OPENING:
+"${character?.name} maintains complete visual consistency throughout all motion."
+
+THEN DESCRIBE MOTION (100-150 words):
+
+1. CHARACTER MOVEMENT:
+   - Primary action (turning head, walking forward, reaching for object)
+   - Secondary motion (hair moving, clothing responding to movement)
+   - Pacing (slow deliberate, quick sudden, smooth fluid)
+
+2. CAMERA MOVEMENT:
+   - Static or moving?
+   - If moving: "Slow dolly in", "Pan left to right", "Orbit around character"
+   - Start and end position
+
+3. ENVIRONMENTAL MOTION:
+   - Moving elements (leaves falling, cars passing, lights flickering, rain falling)
+   - Background activity
+   - Atmospheric movement (smoke drifting, clouds moving)
+
+4. TIMING & PACING:
+   - What happens first, middle, end
+   - Speed and rhythm
+   - Dramatic beats
+
+═══════════════════════════════════════════════════════════════
+OUTPUT FORMAT (JSON Array with exactly 3 scenes):
+═══════════════════════════════════════════════════════════════
 
 [
   {
-    "scene_image_prompt": "The main character from the reference image - ${character?.name} - appears in this scene with EXACT consistency: same face, same hairstyle, same clothing, same distinctive features. [Continue with full 200-350 word detailed scene description following all guidelines above...]",
-    "scene_video_prompt": "${character?.name} maintains complete visual consistency with the reference image throughout all movement. [Continue with full 100-200 word motion description following all guidelines above...]"
+    "scene_image_prompt": "[Mandatory character consistency opening] + [Full scene description 200-300 words]",
+    "scene_video_prompt": "[Mandatory motion consistency opening] + [Motion description 100-150 words]"
   },
   {
     "scene_image_prompt": "...",
@@ -301,22 +247,14 @@ Return ONLY this JSON array with exactly 3 scene objects:
   }
 ]
 
-═══════════════════════════════════════════════════════════
-FINAL CHECKLIST - BEFORE RETURNING YOUR RESPONSE:
-═══════════════════════════════════════════════════════════
+EXAMPLE SCENE 1 (ESTABLISHMENT):
+{
+  "scene_image_prompt": "Marcus Chen appears in this scene, maintaining visual consistency with the reference: A striking 34-year-old Asian man with short black textured crop hair, dark intense eyes, thin scar on left cheek, wearing charcoal tactical jacket over black sweater...
 
-✓ Each scene_image_prompt begins with character consistency statement
-✓ Each scene_video_prompt begins with motion consistency statement
-✓ Character name appears in every prompt
-✓ All 3 scenes follow a clear narrative arc
-✓ Technical quality tags included in image prompts
-✓ Specific, actionable descriptions (no vague terms)
-✓ 200-350 words for image prompts, 100-200 for video prompts
-✓ Valid JSON array format with exactly 3 objects
-✓ Character is the clear focus in all scenes
-
-Remember: The AI image/video models MUST be able to maintain the exact same character across all scenes. Every detail in your prompts should reinforce character consistency while telling a compelling visual story.
-`;
+  Now in this scene: Marcus stands on a rain-slicked rooftop at dusk in a sprawling cyberpunk cityscape. The scene is a wide cinematic shot captured with a 24mm lens, showing Marcus positioned in the right third of the frame, his figure silhouetted against the neon-lit city behind him. Towering skyscrapers with holographic advertisements stretch into the misty distance, their lights reflecting in puddles across the concrete rooftop. Marcus faces away from camera, looking out over the city, his tactical jacket collar turned up against the wind. His posture is contemplative, hands in pockets, weight shifted to one leg. The lighting is moody and atmospheric - cool blue tones from the city lights mix with warm orange neon signs, creating a cyberpunk color palette. Rain falls gently, creating a hazy atmosphere with visible droplets. In the foreground, industrial rooftop equipment (ventilation units, satellite dishes) frame the shot. The background shows the vast urban sprawl with flying vehicles visible as light trails. Cinematic composition with deep depth of field showing layers of environment. Professional cinematography, highly detailed, 8k resolution, blade runner aesthetic, moody color grading with enhanced blues and oranges, atmospheric fog and rain effects.",
+  
+  "scene_video_prompt": "Marcus Chen maintains complete visual consistency throughout all motion. The camera is static, locked off shot. Marcus slowly turns his head from left to right, scanning the city horizon, his hair moving slightly with the motion. His jacket collar flutters gently in the wind. Rain continues to fall steadily throughout, with droplets visible in the neon light. In the background, holographic advertisements flicker and shift. A flying vehicle passes slowly from left to right in the distant background, its lights creating a smooth light trail. The entire video has a contemplative, establishing mood. Motion is slow and deliberate, taking 5-6 seconds. Atmospheric rain and wind effects continue throughout."
+}`;
     }
 
     const response = await openai.responses.create({
@@ -391,7 +329,5 @@ Remember: The AI image/video models MUST be able to maintain the exact same char
       { error: err.message || "Internal server error" },
       { status: 500 }
     );
-    
   }
 }
-

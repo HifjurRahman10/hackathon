@@ -98,6 +98,7 @@ export async function POST(req: Request) {
 
     let finalPrompt = prompt;
     let chatId = metadata?.chatId || "default-chat";
+    let referenceImageUrl: string | undefined;
 
     // If scene, include character details for consistency
     if (mode === "scene") {
@@ -108,11 +109,12 @@ export async function POST(req: Request) {
         .single();
 
       if (characterData) {
-        // Include character's visual description from the original prompt for better consistency
-        if (characterData.character_image_prompt) {
-          finalPrompt = `Include the main character (${characterData.character_name || "character"}) with these exact visual characteristics: ${characterData.character_image_prompt.substring(0, 500)}... \n\nSCENE: ${finalPrompt}`;
-        } else if (characterData.character_image_url) {
-          finalPrompt += ` Include the main character from reference image: ${characterData.character_image_url}`;
+        // Store reference image URL for Wavespeed
+        referenceImageUrl = characterData.character_image_url;
+        
+        // Also enhance prompt with character details
+        if (characterData.character_name) {
+          finalPrompt = `Scene with the main character (${characterData.character_name}): ${finalPrompt}`;
         }
       }
     }
@@ -123,14 +125,32 @@ export async function POST(req: Request) {
     let imageUrl: string;
     
     if (WAVESPEED_API_KEY) {
-      // Use Wavespeed API
-      const wavespeedUrl = "https://api.wavespeed.ai/api/v3/bytedance/seedream-v4";
-      const wavespeedPayload = {
-        prompt: finalPrompt,
-        size: "2048*2048",
-        enable_base64_output: false,
-        enable_sync_mode: false
-      };
+      // Use different endpoints based on mode
+      let wavespeedUrl: string;
+      let wavespeedPayload: any;
+
+      if (mode === "scene" && referenceImageUrl) {
+        // Use Edit API for scenes with character reference
+        wavespeedUrl = "https://api.wavespeed.ai/api/v3/bytedance/seedream-v4/edit";
+        wavespeedPayload = {
+          prompt: finalPrompt,
+          images: [referenceImageUrl], // Array of reference images
+          size: "2048*2048",
+          enable_base64_output: false,
+          enable_sync_mode: false
+        };
+        console.log(`Using Seedream V4 Edit with character reference: ${referenceImageUrl}`);
+      } else {
+        // Use regular generation API for characters
+        wavespeedUrl = "https://api.wavespeed.ai/api/v3/bytedance/seedream-v4";
+        wavespeedPayload = {
+          prompt: finalPrompt,
+          size: "2048*2048",
+          enable_base64_output: false,
+          enable_sync_mode: false
+        };
+        console.log(`Using Seedream V4 for character generation`);
+      }
 
       const submitResponse = await fetch(wavespeedUrl, {
         method: 'POST',

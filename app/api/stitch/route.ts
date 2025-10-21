@@ -51,19 +51,21 @@ export async function POST(req: Request) {
         inputFiles.push(inputFile);
       }
 
-      // Use fluent-ffmpeg to concatenate
+      // Create concat file for FFmpeg
+      const concatFile = path.join(tempDir, 'concat.txt');
+      const concatContent = inputFiles.map(file => `file '${path.basename(file)}'`).join('\n');
+      fs.writeFileSync(concatFile, concatContent);
+
+      // Use fluent-ffmpeg to concatenate using concat demuxer
       await new Promise<void>((resolve, reject) => {
-        const command = ffmpeg();
-
-        // Add inputs
-        inputFiles.forEach(file => {
-          command.input(file);
-        });
-
-        command
+        ffmpeg()
+          .input(concatFile)
+          .inputOptions(['-f concat', '-safe 0'])
+          .outputOptions(['-c copy'])
+          .output(outputFile)
           .on('end', () => resolve())
           .on('error', (err: Error) => reject(err))
-          .mergeToFile(outputFile, tempDir);
+          .run();
       });
 
       // Read the output file

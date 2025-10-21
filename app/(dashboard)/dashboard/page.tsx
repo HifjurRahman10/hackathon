@@ -4,8 +4,7 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { getBrowserSupabase } from "@/lib/auth/supabase-browser";
 import { Plus, MessageSquare, Trash2, Video } from "lucide-react";
-import { FFmpeg } from '@ffmpeg/ffmpeg';
-import { fetchFile } from '@ffmpeg/util';
+
 
 interface Chat {
   id: string;
@@ -29,7 +28,6 @@ export default function DashboardPage() {
   const [hasExistingScenes, setHasExistingScenes] = useState(false);
   const [generatingVideos, setGeneratingVideos] = useState(false);
   const [stitchedVideoUrl, setStitchedVideoUrl] = useState<string | null>(null);
-  const [stitching, setStitching] = useState(false);
 
   useEffect(() => {
     async function fetchUser() {
@@ -289,10 +287,23 @@ export default function DashboardPage() {
       setScenes(updatedScenes);
       setGeneratingVideos(false);
 
-      // 8️⃣ Automatically stitch videos if all are ready
+      // Stitch videos if all are ready
       if (updatedScenes.every((s: SceneData) => s.videoUrl)) {
-        await stitchVideos();
+        const videoUrls = updatedScenes.map(s => s.videoUrl!);
+        const stitchRes = await fetch("/api/stitch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoUrls, chatId: currentChatId, userId }),
+        });
+        if (stitchRes.ok) {
+          const { videoUrl } = await stitchRes.json();
+          setStitchedVideoUrl(videoUrl);
+        } else {
+          console.error("Stitching failed");
+        }
       }
+
+
 
     } catch (err: any) {
       console.error(err);
@@ -302,7 +313,7 @@ export default function DashboardPage() {
     }
   }
 
-  async function stitchVideos() {
+  // async function stitchVideos() {
     if (scenes.some(s => !s.videoUrl)) return;
     setStitching(true);
     try {
@@ -331,7 +342,7 @@ export default function DashboardPage() {
     } finally {
       setStitching(false);
     }
-  }
+  // }
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -421,15 +432,55 @@ export default function DashboardPage() {
               </p>
             )}
 
-            {stitching && (
-              <p className="text-green-600 text-center mt-4 font-medium flex items-center justify-center gap-2">
-                <Video className="w-5 h-5 animate-pulse" />
-                Stitching videos...
-              </p>
-            )}
+
 
             {/* Scene Images & Videos */}
-            {stitchedVideoUrl ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-8">
+              {scenes.map((scene, i) => (
+                <div
+                  key={i}
+                  className="relative aspect-square rounded-xl overflow-hidden shadow-md bg-gray-100"
+                >
+                  {scene.videoUrl ? (
+                    <video
+                      src={scene.videoUrl}
+                      controls
+                      autoPlay
+                      loop
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <Image
+                      src={scene.imageUrl}
+                      alt={`Scene ${i + 1}`}
+                      fill
+                      className="object-cover"
+                    />
+                  )}
+                  <span className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
+                    {scene.videoUrl ? (
+                      <>
+                        <Video className="w-3 h-3" />
+                        Scene {i + 1}
+                      </>
+                    ) : (
+                      `Scene ${i + 1}`
+                    )}
+                  </span>
+                  {!scene.videoUrl && generatingVideos && (
+                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                      <div className="text-center text-white">
+                        <Video className="w-8 h-8 mx-auto animate-pulse mb-2" />
+                        <p className="text-xs">Processing...</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {stitchedVideoUrl && (
               <div className="mt-8">
                 <h2 className="text-xl font-semibold mb-4 text-center">Stitched Cinematic Video</h2>
                 <div className="flex justify-center">
@@ -439,51 +490,6 @@ export default function DashboardPage() {
                     className="max-w-full rounded-lg shadow-md"
                   />
                 </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-8">
-                {scenes.map((scene, i) => (
-                  <div
-                    key={i}
-                    className="relative aspect-square rounded-xl overflow-hidden shadow-md bg-gray-100"
-                  >
-                    {scene.videoUrl ? (
-                      <video
-                        src={scene.videoUrl}
-                        controls
-                        autoPlay
-                        loop
-                        muted
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <Image
-                        src={scene.imageUrl}
-                        alt={`Scene ${i + 1}`}
-                        fill
-                        className="object-cover"
-                      />
-                    )}
-                    <span className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
-                      {scene.videoUrl ? (
-                        <>
-                          <Video className="w-3 h-3" />
-                          Scene {i + 1}
-                        </>
-                      ) : (
-                        `Scene ${i + 1}`
-                      )}
-                    </span>
-                    {!scene.videoUrl && generatingVideos && (
-                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                        <div className="text-center text-white">
-                          <Video className="w-8 h-8 mx-auto animate-pulse mb-2" />
-                          <p className="text-xs">Processing...</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
               </div>
             )}
           </div>

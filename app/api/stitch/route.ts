@@ -37,6 +37,18 @@ export async function POST(req: Request) {
     const { videoUrls, chatId, userId } = schema.parse(body);
     console.log("Parsed data:", { videoUrls: videoUrls.length, chatId, userId });
 
+    // Verify chat belongs to user
+    const { data: chat } = await supabase
+      .from("chats")
+      .select("id")
+      .eq("id", chatId)
+      .eq("user_id", userId)
+      .single();
+
+    if (!chat) {
+      return NextResponse.json({ error: "Chat not found or access denied" }, { status: 403 });
+    }
+
     if (videoUrls.length < 2) {
       console.log("Not enough videos:", videoUrls.length);
       return NextResponse.json({ error: "At least 2 videos required" }, { status: 400 });
@@ -67,7 +79,7 @@ export async function POST(req: Request) {
 
       // Create concat file for FFmpeg
       const concatFile = path.join(tempDir, 'concat.txt');
-      const concatContent = inputFiles.map(file => `file '${path.basename(file)}'`).join('\n');
+      const concatContent = inputFiles.map(file => `file '${file.replace(/\\/g, '/')}'`).join('\n');
       fs.writeFileSync(concatFile, concatContent);
 
       // Use fluent-ffmpeg to concatenate using concat demuxer

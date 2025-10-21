@@ -120,141 +120,178 @@ EXAMPLE:
   "image_prompt": "A striking 34-year-old Asian man with sharp, defined facial features and an intense, calculating gaze. He has short black hair with a modern textured crop, styled with a slight forward sweep. His eyes are dark brown, almond-shaped, and piercing, framed by strong eyebrows. A thin scar runs along his left cheekbone, barely visible but adding character. His skin is a warm olive tone with subtle five o'clock shadow along his jawline. He wears a tailored charcoal gray tactical jacket with high collar, made of water-resistant technical fabric with subtle reflective piping along the seams. Underneath is a fitted black merino wool sweater. A sleek silver watch with a dark face is visible on his left wrist. Around his neck hangs a small pendant - a silver compass on a leather cord. He stands in a confident, slightly guarded stance with arms crossed, head tilted slightly, expression serious and focused with the hint of a knowing smirk. Professional portrait photography, shot at eye level with 85mm lens, f/2.8 aperture creating shallow depth of field. Cinematic lighting with soft key light from the left creating depth and dimension. The background is intentionally simple - a dark blurred gradient with hints of cool blue tones, keeping all focus on the character. Highly detailed, 8k resolution, photorealistic quality, sharp focus on facial features, cinematic color grading with slightly desaturated tones and enhanced contrast."
 }`;
     } else if (mode === "scenes") {
-      systemPrompt = `You are a master cinematic scene designer. Your task is to create 3 DISTINCT NARRATIVE SCENES featuring the character described below.
+      systemPrompt = `You are a master cinematic scene designer. Generate 3 CONNECTED SCENES that tell a cohesive visual story.
 
-CHARACTER REFERENCE:
-- Name: ${character?.name}
-- Description: ${character?.image_prompt}
+CRITICAL CONTINUITY RULES:
+1. All 3 scenes must feel like they're from the SAME STORY
+2. Character appearance is IDENTICAL in all scenes (same face, hair, clothing, accessories)
+3. Visual style is CONSISTENT across all scenes (same color palette, lighting style, cinematography)
+4. Time of day progresses naturally: Scene 1 (dusk) → Scene 2 (night) → Scene 3 (late night) OR maintain consistent time
+5. Locations are CONNECTED (same building different floors, same street different spots, related environments)
+6. Each scene should feel like the next logical moment in the story
 
-CRITICAL RULES:
-1. These are SCENES, not character portraits
-2. Character appears IN THE SCENE doing something, interacting with environment
-3. Each scene shows DIFFERENT setting, different action, different mood
-4. Wide or medium shots showing context and environment
-5. Character should be recognizable but is part of a larger scene composition
+NARRATIVE STRUCTURE:
 
-NARRATIVE STRUCTURE (3 scenes must follow this arc):
+SCENE 1 - ESTABLISHMENT (Calm before the storm):
+- Introduces character in their environment
+- Sets the visual tone for all 3 scenes
+- Calmer, contemplative moment
+- Establishes WHERE the story takes place
+- Example: Character arriving, observing, preparing
 
-SCENE 1 - SETUP/ESTABLISHMENT:
-- Introduces character in their world
-- Sets tone and context
-- Calmer, establishing shot
-- Shows WHERE and WHO
-
-SCENE 2 - RISING ACTION/CONFLICT:
-- Character facing challenge or in action
+SCENE 2 - RISING ACTION (The challenge):
+- Character now engaged with the situation
 - More dynamic, tension increases
-- Shows WHAT IS HAPPENING
+- Logically follows from Scene 1
+- Same general area but different perspective/position
+- Example: Character in motion, confronting obstacle, pursuing goal
 
-SCENE 3 - CLIMAX/RESOLUTION:
-- Peak moment or conclusion
+SCENE 3 - CLIMAX/RESOLUTION (The peak moment):
+- The payoff moment
 - Most dramatic or emotionally charged
-- Shows OUTCOME or emotional peak
-
-FOR EACH SCENE CREATE TWO PROMPTS:
+- Concludes the mini-story
+- Final position in the connected environment
+- Example: Character achieving goal, dramatic reveal, emotional conclusion
 
 ═══════════════════════════════════════════════════════════════
-📸 SCENE_IMAGE_PROMPT (For Still Image Generation)
+CONTINUITY CHECKLIST (Apply to ALL 3 scenes):
 ═══════════════════════════════════════════════════════════════
 
-MANDATORY OPENING (copy character consistency):
-"${character?.name} appears in this scene, maintaining visual consistency with the reference: ${character?.image_prompt?.slice(0, 200)}... 
+✓ CHARACTER CONSISTENCY:
+  - Exact same face, hairstyle, hair color
+  - Identical clothing (every layer, every accessory)
+  - Same color palette for character
+  - Same level of detail
 
-Now in this scene:"
+✓ VISUAL STYLE CONSISTENCY:
+  - Same cinematography style (all cyberpunk, or all gritty realistic, etc.)
+  - Same color grading approach
+  - Similar lighting quality (all moody, or all bright, etc.)
+  - Same film genre aesthetic
 
-THEN DESCRIBE THE SCENE (200-300 words):
+✓ LOCATION CONTINUITY:
+  - Connected spaces (rooftop → alley → street corner in same district)
+  - OR same location, different angles/moments
+  - Consistent environmental style (all urban, all nature, all indoor)
+  - Similar architectural/environmental elements
 
-1. SETTING & ENVIRONMENT:
-   - Specific location (rooftop at dusk, underground lab, forest clearing, etc.)
-   - Time of day and weather
-   - Environmental details (architecture, nature, tech, props)
-   - Atmospheric conditions (fog, rain, dust, etc.)
+✓ TIME PROGRESSION:
+  - Natural time flow (dusk → evening → night)
+  - OR consistent time across all scenes
+  - Lighting changes that make sense
+  - Sky/weather conditions that progress logically
+
+✓ ATMOSPHERIC CONSISTENCY:
+  - If Scene 1 is rainy, Scenes 2&3 should be rainy or just-rained
+  - If Scene 1 is foggy, maintain that atmosphere
+  - Keep weather and environmental conditions consistent
+
+═══════════════════════════════════════════════════════════════
+FOR EACH SCENE: Create SCENE_IMAGE_PROMPT and SCENE_VIDEO_PROMPT
+═══════════════════════════════════════════════════════════════
+
+📸 SCENE_IMAGE_PROMPT FORMAT:
+
+OPENING LINE (all scenes):
+"The main character from the story appears in this scene, maintaining exact visual consistency across all three scenes of this story sequence."
+
+SCENE-SPECIFIC TRANSITION (Scene 2 and 3):
+Scene 2: "Shortly after [brief reference to Scene 1], the character now [new position/action]..."
+Scene 3: "Following the events of the previous scenes, the character [final position/action]..."
+
+THEN DESCRIBE (250-350 words):
+
+1. CONNECTED SETTING:
+   - Location that relates to other scenes
+   - How it connects spatially
+   - Time of day (consistent or naturally progressed)
+   - Weather/atmosphere (consistent with other scenes)
 
 2. CHARACTER IN SCENE:
-   - WHERE they are positioned (not centered, use rule of thirds)
-   - WHAT they are doing (walking, examining something, reaching, fighting)
-   - Body language and movement
-   - Expression appropriate to scene
-   - How they interact with environment
+   - Position and action appropriate to narrative beat
+   - Body language matching the story moment
+   - SAME clothing and appearance as other scenes
 
-3. COMPOSITION:
-   - Shot type: "Wide shot establishing scene" or "Medium shot showing character and context"
-   - Camera angle: "Low angle looking up", "High angle bird's eye view", "Dutch angle for tension"
-   - Foreground and background elements
-   - Depth layers (foreground, character, background)
+3. VISUAL CONTINUITY ELEMENTS:
+   - Reference similar colors from other scenes
+   - Maintain the same cinematographic style
+   - Keep consistent environmental elements
+   - Example: "The same neon-lit aesthetic from earlier", "The rain continues from the previous scene"
 
-4. LIGHTING & ATMOSPHERE:
-   - Light source (neon signs, setting sun, flashlight, fire, etc.)
-   - Color palette for the scene
-   - Mood (ominous, hopeful, tense, serene)
-   - Weather effects
+4. COMPOSITION:
+   - Shot type (varied across scenes: wide, medium, but consistent style)
+   - Camera angle appropriate to mood
+   - Foreground/background with consistent visual language
 
-5. CINEMATIC STYLE:
-   - "Cinematic wide shot, 24mm lens"
-   - Color grading reference (blade runner aesthetic, natural documentary style, etc.)
-   - "Highly detailed, 8k, professional cinematography"
+5. LIGHTING:
+   - Consistent with time progression
+   - Same quality of light (harsh, soft, moody, bright)
+   - Similar color temperature family
 
-IMPORTANT: 
-- Character should be IN the scene, not dominating it
-- Show environmental storytelling
-- Each scene must be visually DISTINCT from the others
+6. TECHNICAL:
+   - "Cinematic [shot type], [lens]mm lens"
+   - Consistent art direction across scenes
+   - "8k, highly detailed, [consistent style]"
 
-═══════════════════════════════════════════════════════════════
-🎬 SCENE_VIDEO_PROMPT (For Video Generation - What Moves)
-═══════════════════════════════════════════════════════════════
+🎬 SCENE_VIDEO_PROMPT FORMAT:
 
-MANDATORY OPENING:
-"${character?.name} maintains complete visual consistency throughout all motion."
+OPENING:
+"The main character maintains complete visual consistency throughout all motion."
 
-THEN DESCRIBE MOTION (100-150 words):
-
-1. CHARACTER MOVEMENT:
-   - Primary action (turning head, walking forward, reaching for object)
-   - Secondary motion (hair moving, clothing responding to movement)
-   - Pacing (slow deliberate, quick sudden, smooth fluid)
-
-2. CAMERA MOVEMENT:
-   - Static or moving?
-   - If moving: "Slow dolly in", "Pan left to right", "Orbit around character"
-   - Start and end position
-
-3. ENVIRONMENTAL MOTION:
-   - Moving elements (leaves falling, cars passing, lights flickering, rain falling)
-   - Background activity
-   - Atmospheric movement (smoke drifting, clouds moving)
-
-4. TIMING & PACING:
-   - What happens first, middle, end
-   - Speed and rhythm
-   - Dramatic beats
+DESCRIBE MOTION (100-150 words):
+- Character movement appropriate to scene's narrative beat
+- Camera movement (varied but stylistically consistent)
+- Environmental motion that maintains atmosphere
+- Pacing that matches the emotional beat
 
 ═══════════════════════════════════════════════════════════════
-OUTPUT FORMAT (JSON Array with exactly 3 scenes):
+SPECIFIC CONTINUITY EXAMPLES:
+═══════════════════════════════════════════════════════════════
+
+BAD (No continuity):
+Scene 1: Daytime beach, character in swimsuit, bright sunny
+Scene 2: Night urban alley, character in leather jacket, dark rainy
+Scene 3: Indoor office, character in business suit, fluorescent lighting
+❌ Completely disconnected, no visual or narrative flow
+
+GOOD (Strong continuity):
+Scene 1: Dusk rooftop in cyberpunk city, character in tactical jacket, neon ambient light, rain starting
+Scene 2: Evening street level same district, character in same tactical jacket, neon signs reflecting in wet pavement, rain heavier
+Scene 3: Night underground entrance nearby, character in same tactical jacket, neon underglow, rain visible through grate above
+✓ Connected location, consistent character, natural progression, unified atmosphere
+
+═══════════════════════════════════════════════════════════════
+OUTPUT FORMAT (JSON array with 3 scenes):
 ═══════════════════════════════════════════════════════════════
 
 [
   {
-    "scene_image_prompt": "[Mandatory character consistency opening] + [Full scene description 200-300 words]",
-    "scene_video_prompt": "[Mandatory motion consistency opening] + [Motion description 100-150 words]"
+    "scene_image_prompt": "The main character from the story appears in this scene, maintaining exact visual consistency across all three scenes of this story sequence. [250-350 words describing Scene 1 ESTABLISHMENT with all continuity elements in mind]",
+    "scene_video_prompt": "The main character maintains complete visual consistency throughout all motion. [100-150 words of motion for Scene 1]"
   },
   {
-    "scene_image_prompt": "...",
-    "scene_video_prompt": "..."
+    "scene_image_prompt": "The main character from the story appears in this scene, maintaining exact visual consistency across all three scenes of this story sequence. Shortly after [Scene 1 reference], the character now [Scene 2 new action]. [250-350 words describing Scene 2 RISING ACTION with continuity from Scene 1]",
+    "scene_video_prompt": "The main character maintains complete visual consistency throughout all motion. [100-150 words of motion for Scene 2, building intensity from Scene 1]"
   },
   {
-    "scene_image_prompt": "...",
-    "scene_video_prompt": "..."
+    "scene_image_prompt": "The main character from the story appears in this scene, maintaining exact visual consistency across all three scenes of this story sequence. Following the events of the previous scenes, the character [Scene 3 climax action]. [250-350 words describing Scene 3 CLIMAX with continuity from Scenes 1&2]",
+    "scene_video_prompt": "The main character maintains complete visual consistency throughout all motion. [100-150 words of motion for Scene 3, concluding the sequence]"
   }
 ]
 
-EXAMPLE SCENE 1 (ESTABLISHMENT):
-{
-  "scene_image_prompt": "Marcus Chen appears in this scene, maintaining visual consistency with the reference: A striking 34-year-old Asian man with short black textured crop hair, dark intense eyes, thin scar on left cheek, wearing charcoal tactical jacket over black sweater...
+═══════════════════════════════════════════════════════════════
+FINAL CHECKLIST BEFORE GENERATING:
+═══════════════════════════════════════════════════════════════
 
-  Now in this scene: Marcus stands on a rain-slicked rooftop at dusk in a sprawling cyberpunk cityscape. The scene is a wide cinematic shot captured with a 24mm lens, showing Marcus positioned in the right third of the frame, his figure silhouetted against the neon-lit city behind him. Towering skyscrapers with holographic advertisements stretch into the misty distance, their lights reflecting in puddles across the concrete rooftop. Marcus faces away from camera, looking out over the city, his tactical jacket collar turned up against the wind. His posture is contemplative, hands in pockets, weight shifted to one leg. The lighting is moody and atmospheric - cool blue tones from the city lights mix with warm orange neon signs, creating a cyberpunk color palette. Rain falls gently, creating a hazy atmosphere with visible droplets. In the foreground, industrial rooftop equipment (ventilation units, satellite dishes) frame the shot. The background shows the vast urban sprawl with flying vehicles visible as light trails. Cinematic composition with deep depth of field showing layers of environment. Professional cinematography, highly detailed, 8k resolution, blade runner aesthetic, moody color grading with enhanced blues and oranges, atmospheric fog and rain effects.",
-  
-  "scene_video_prompt": "Marcus Chen maintains complete visual consistency throughout all motion. The camera is static, locked off shot. Marcus slowly turns his head from left to right, scanning the city horizon, his hair moving slightly with the motion. His jacket collar flutters gently in the wind. Rain continues to fall steadily throughout, with droplets visible in the neon light. In the background, holographic advertisements flicker and shift. A flying vehicle passes slowly from left to right in the distant background, its lights creating a smooth light trail. The entire video has a contemplative, establishing mood. Motion is slow and deliberate, taking 5-6 seconds. Atmospheric rain and wind effects continue throughout."
-}`;
+Ask yourself:
+1. Could these 3 scenes be screenshots from the same movie? (They should be!)
+2. Is the character wearing the exact same outfit in all 3? (Must be YES)
+3. Do the locations make spatial sense together? (They should connect)
+4. Does time progress naturally or stay consistent? (It should)
+5. Is the visual style unified across all 3? (Same color palette, same cinematography)
+6. Does the story flow logically from Scene 1 → 2 → 3? (Clear narrative progression)
+
+If you answered YES to all 6, proceed. If NO to any, revise for better continuity.`;
     }
 
     const response = await openai.responses.create({

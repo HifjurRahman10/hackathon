@@ -15,6 +15,13 @@
       "when": 1760740438986,
       "tag": "0001_damp_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1761162753497,
+      "tag": "0002_goofy_warstar",
+      "breakpoints": true
     }
   ]
 }

@@ -84,6 +84,12 @@ export const scenes = pgTable('scenes', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+export const finalVideo = pgTable('final_video',{
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  chatId: uuid('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),
+  videoUrl: text('video_url'),
+});
+
 export const characters = pgTable('characters', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   chatId: uuid('chat_id').notNull().references(() => chats.id, { onDelete: 'cascade' }),

@@ -7,6 +7,8 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { promisify } from 'util';
+import { db } from '@/lib/db/drizzle';
+import { finalVideo } from '@/lib/db/schema';
 
 // Set ffmpeg path
 console.log("FFmpeg static path:", ffmpegStatic);
@@ -91,7 +93,7 @@ export async function POST(req: Request) {
         ffmpeg()
           .input(concatFile)
           .inputOptions(['-f concat', '-safe 0'])
-          .outputOptions(['-c copy'])
+          .outputOptions(['-c:v libx264', '-c:a aac', '-preset fast'])
           .output(outputFile)
           .on('start', (commandLine: string) => {
             console.log('FFmpeg command: ' + commandLine);
@@ -142,6 +144,13 @@ export async function POST(req: Request) {
       }
 
       console.log("Final video URL:", urlData.publicUrl);
+
+      // Save to database
+      await db.insert(finalVideo).values({
+        chatId: chatId,
+        videoUrl: urlData.publicUrl,
+      });
+
       return NextResponse.json({ videoUrl: urlData.publicUrl });
     } finally {
       // Clean up temp files

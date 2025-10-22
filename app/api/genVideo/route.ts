@@ -1,135 +1,120 @@
 import { NextResponse } from "next/server";
+import { spawn } from "child_process";
+import fs from "fs/promises";
+import path from "path";
+import os from "os";
+import ffmpegPath from "ffmpeg-static"; // ✅ Portable FFmpeg binary
 import { createClient } from "@supabase/supabase-js";
 
-const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY!;
+// ✅ Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-async function ensureBucket(name: string) {
-  const { data: buckets } = await supabase.storage.listBuckets();
-  const existing = buckets?.find((b) => b.name === name);
-  if (!existing) await supabase.storage.createBucket(name, { public: true });
-  else if (!existing.public) await supabase.storage.updateBucket(name, { public: true });
-}
+// ✅ Force Node runtime (not Edge)
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-async function pollVideoStatus(requestId: string): Promise<string> {
-  const maxAttempts = 120; // 2 minutes max
-  let attempts = 0;
-
-  while (attempts < maxAttempts) {
-    const res = await fetch(
-      `https://api.wavespeed.ai/api/v3/predictions/${requestId}/result`,
-      { headers: { Authorization: `Bearer ${WAVESPEED_API_KEY}` } }
-    );
-    const json = await res.json();
-
-    if (res.ok && json.data?.status) {
-      const status = json.data.status;
-      if (status === "completed") {
-        const url = json.data.outputs[0];
-        console.log("✅ Video ready:", url);
-        return url;
-      } else if (status === "failed") {
-        throw new Error(`Video generation failed: ${json.data.error || "Unknown"}`);
-      } else {
-        console.log(`⏳ Waiting (${attempts + 1}): ${status}`);
-      }
-    } else {
-      console.error("Polling failed:", json);
-      throw new Error(`Polling error: ${res.status}`);
-    }
-
-    await new Promise((r) => setTimeout(r, 1000));
-    attempts++;
-  }
-
-  throw new Error("Video generation timeout");
-}
-
+// ✅ Main handler
 export async function POST(req: Request) {
   try {
-    const { prompt, imageUrl, sceneId, userId, metadata } = await req.json();
-    if (!WAVESPEED_API_KEY)
-      return NextResponse.json({ error: "Missing WAVESPEED_API_KEY" }, { status: 500 });
-    if (!imageUrl || !sceneId)
-      return NextResponse.json({ error: "`imageUrl` and `sceneId` required" }, { status: 400 });
-    if (!userId)
-      return NextResponse.json({ error: "`userId` required" }, { status: 400 });
+    const { videoUrls, userId, chatId } = await req.json();
 
-    const bucket = "user_upload";
-    await ensureBucket(bucket);
-    const chatId = metadata?.chatId || "default-chat";
-
-    console.log(`🎬 Generating video for scene ${sceneId}...`);
-
-    const submitRes = await fetch(
-      "https://api.wavespeed.ai/api/v3/bytedance/seedance-v1-pro-i2v-480p",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${WAVESPEED_API_KEY}`,
-        },
-        body: JSON.stringify({
-          image: imageUrl,
-          duration: 10,
-          "camera-fixed": false,
-          seed: -1,
-          ...(prompt && { prompt }),
-        }),
-      }
-    );
-
-    if (!submitRes.ok) {
-      const errTxt = await submitRes.text();
-      console.error("❌ Submit error:", errTxt);
-      return NextResponse.json({ error: "Wavespeed submission failed" }, { status: 502 });
+    // --- Validate input ---
+    if (!Array.isArray(videoUrls) || videoUrls.length < 2) {
+      return NextResponse.json({ error: "Need at least 2 videos" }, { status: 400 });
+    }
+    if (!userId || !chatId) {
+      return NextResponse.json({ error: "Missing userId or chatId" }, { status: 400 });
     }
 
-    const submitJson = await submitRes.json();
-    const requestId = submitJson.data.id;
-    console.log("🆔 Wavespeed request:", requestId);
+    console.log(`🎬 Stitching ${videoUrls.length} videos for chat ${chatId}`);
 
-    const resultUrl = await pollVideoStatus(requestId);
-    console.log("🌐 Result URL:", resultUrl);
+    // --- Create temp working directory ---
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "stitch-"));
+    const listFile = path.join(tmpDir, "list.txt");
+    const outputFile = path.join(tmpDir, "final.mp4");
 
-    // 🪄 Upload directly from URL to Supabase Storage
-    const timestamp = Date.now();
-    const filePath = `${userId}/${chatId}/scene_video_${timestamp}.mp4`;
+    // --- Download input videos ---
+    console.log("⬇️ Downloading scene videos...");
+    const localFiles: string[] = [];
 
-    const uploadRes = await fetch(resultUrl);
-    const videoArray = await uploadRes.arrayBuffer();
-    const videoBuffer = Buffer.from(videoArray);
+    for (let i = 0; i < videoUrls.length; i++) {
+      const res = await fetch(videoUrls[i]);
+      if (!res.ok) throw new Error(`Failed to download video ${i + 1}`);
+      const data = await res.arrayBuffer();
+      const localPath = path.join(tmpDir, `scene_${i}.mp4`);
+      await fs.writeFile(localPath, Buffer.from(data));
+      localFiles.push(localPath);
+    }
+
+    // --- Create FFmpeg list file ---
+    const listContent = localFiles.map((f) => `file '${f}'`).join("\n");
+    await fs.writeFile(listFile, listContent);
+    console.log("🧾 Created FFmpeg concat list");
+
+    // --- Run FFmpeg ---
+    console.log("🎞️ Running FFmpeg concat...");
+    await new Promise<void>((resolve, reject) => {
+      const ffmpeg = spawn(ffmpegPath!, [
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        listFile,
+        "-c",
+        "copy",
+        outputFile,
+      ]);
+
+      ffmpeg.stderr.on("data", (d) => console.log(d.toString()));
+      ffmpeg.on("error", reject);
+      ffmpeg.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`FFmpeg exited with code ${code}`));
+      });
+    });
+
+    // --- Upload stitched file to Supabase ---
+    console.log("📤 Uploading stitched video to Supabase...");
+    const fileBuffer = await fs.readFile(outputFile);
+    const storagePath = `${userId}/${chatId}/stitched_${Date.now()}.mp4`;
 
     const { error: uploadError } = await supabase.storage
-      .from(bucket)
-      .upload(filePath, videoBuffer, {
+      .from("user_upload")
+      .upload(storagePath, fileBuffer, {
         contentType: "video/mp4",
         upsert: true,
       });
 
-    if (uploadError) {
-      console.error("Upload error:", uploadError);
-      throw uploadError;
-    }
+    if (uploadError) throw uploadError;
 
-    const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+    const { data: urlData } = supabase.storage.from("user_upload").getPublicUrl(storagePath);
     const videoUrl = urlData.publicUrl;
 
-    // 🧾 Update scenes table
-    const { error: updateError } = await supabase
-      .from("scenes")
-      .update({ video_url: videoUrl })
-      .eq("id", sceneId);
+    // --- Insert into final_video table ---
+    console.log("🧾 Inserting record into final_video table...");
+    const { error: dbError } = await supabase
+      .from("final_video")
+      .insert([{ chat_id: chatId, video_url: videoUrl }]);
 
-    if (updateError) console.error("DB update failed:", updateError);
-    else console.log(`✅ Scene ${sceneId} updated with video URL`);
+    if (dbError) console.error("❌ DB insert error:", dbError);
+    else console.log("✅ Record inserted successfully");
 
-    return NextResponse.json({ videoUrl, filePath });
+    // --- Cleanup temp files ---
+    console.log("🧹 Cleaning up temporary files...");
+    for (const file of localFiles) await fs.unlink(file).catch(() => {});
+    await fs.unlink(listFile).catch(() => {});
+    await fs.unlink(outputFile).catch(() => {});
+    await fs.rmdir(tmpDir).catch(() => {});
+    console.log("✨ Cleanup complete");
+
+    // --- Done ---
+    return NextResponse.json({ success: true, videoUrl });
   } catch (err: any) {
-    console.error("🔥 genVideo error:", err);
+    console.error("🔥 Stitch error:", err);
     return NextResponse.json({ error: err.message || "Unexpected error" }, { status: 500 });
   }
 }

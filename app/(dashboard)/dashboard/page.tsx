@@ -1,11 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Image from "next/image";
+import { useState, useEffect, useRef } from "react";
 import { getBrowserSupabase } from "@/lib/auth/supabase-browser";
-import { Plus, MessageSquare, Trash2, Video } from "lucide-react";
-import { FinalVideos } from "@/components/final-videos";
-
+import { Plus, MessageSquare, Trash2 } from "lucide-react";
 
 interface Chat {
   id: string;
@@ -13,124 +10,157 @@ interface Chat {
   created_at: string;
 }
 
-interface SceneData {
-  imageUrl: string;
-  videoUrl?: string;
-}
-
 export default function DashboardPage() {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
-  const [scenes, setScenes] = useState<SceneData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [hasExistingScenes, setHasExistingScenes] = useState(false);
-  const [generatingVideos, setGeneratingVideos] = useState(false);
   const [stitchedVideoUrl, setStitchedVideoUrl] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+
+  const progressRef = useRef(0);
+
+  // Progress control
+  const setProgressSafe = (val: number) => {
+    const next = Math.min(99, Math.max(val, progressRef.current));
+    progressRef.current = next;
+    setProgress(next);
+  };
+  const setProgressDone = () => {
+    progressRef.current = 100;
+    setProgress(100);
+  };
+
+  const CACHE_KEY = "cached_chats_v1";
+  const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
   useEffect(() => {
     async function fetchUser() {
       const supabase = getBrowserSupabase();
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        try {
-          await fetch("/api/user/sync", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ supabaseUser: user }),
-          });
-        } catch (err) {
-          console.error("Failed to sync user:", err);
-        }
-        
-        setUserId(user.id);
-        await loadChats(user.id);
-      } else {
+
+      if (!user) {
         setError("Please sign in to use this feature");
+        return;
       }
+
+      // Sync user server-side
+      try {
+        await fetch("/api/user/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ supabaseUser: user }),
+        });
+      } catch (err) {
+        console.error("Failed to sync user:", err);
+      }
+
+      setUserId(user.id);
+      await loadChatsWithCache(user.id);
     }
     fetchUser();
   }, []);
 
-  async function loadChats(uid: string) {
+  async function loadChatsWithCache(uid: string) {
+    const cacheStr = localStorage.getItem(CACHE_KEY);
+    let cached = null;
+    if (cacheStr) {
+      try {
+        cached = JSON.parse(cacheStr);
+        if (Date.now() - cached.timestamp < CACHE_TTL && cached.data.length > 0) {
+          setChats(cached.data);
+          setCurrentChatId(cached.data[0].id);
+          await checkExistingScenes(cached.data[0].id);
+          refreshChats(uid, false); // refresh in background
+          return;
+        }
+      } catch (e) {
+        console.warn("Cache parse error:", e);
+      }
+    }
+    await refreshChats(uid, true);
+  }
+
+  async function refreshChats(uid: string, useResult: boolean) {
     try {
       const res = await fetch(`/api/chats?userId=${uid}`);
       const { chats } = await res.json();
-      setChats(chats || []);
-      if (chats && chats.length > 0) {
-        setCurrentChatId(chats[0].id);
-        await loadScenes(chats[0].id);
-      } else {
-        const newChatRes = await fetch("/api/chats", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: uid, title: "New Chat" }),
-        });
-        const { chat } = await newChatRes.json();
-        setChats([chat]);
-        setCurrentChatId(chat.id);
+      if (!chats || chats.length === 0) {
+        const newChat = await createNewChatInternal(uid);
+        setChats([newChat]);
+        setCurrentChatId(newChat.id);
+        cacheChats([newChat]);
+        return;
       }
+      if (useResult) {
+        setChats(chats);
+        setCurrentChatId(chats[0].id);
+        await checkExistingScenes(chats[0].id);
+      }
+      cacheChats(chats);
     } catch (err) {
       console.error("Failed to load chats:", err);
     }
   }
 
-  async function loadScenes(chatId: string) {
+  function cacheChats(chats: Chat[]) {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ timestamp: Date.now(), data: chats }));
+    } catch {}
+  }
+
+  async function checkExistingScenes(chatId: string) {
     try {
       const res = await fetch(`/api/scenes?chatId=${chatId}`);
       const { scenes } = await res.json();
-      if (scenes && scenes.length > 0) {
-        const sceneData = scenes.map((s: any) => ({
-          imageUrl: s.image_url,
-          videoUrl: s.video_url || undefined
-        }));
-        setScenes(sceneData);
-        setHasExistingScenes(true);
-      } else {
-        setScenes([]);
-        setHasExistingScenes(false);
-      }
-    } catch (err) {
-      console.error("Failed to load scenes:", err);
-      setScenes([]);
+      setHasExistingScenes(Array.isArray(scenes) && scenes.length > 0);
+    } catch {
       setHasExistingScenes(false);
     }
   }
 
+  async function createNewChatInternal(uid: string): Promise<Chat> {
+    const res = await fetch("/api/chats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: uid, title: "New Chat" }),
+    });
+    const { chat } = await res.json();
+    return chat;
+  }
+
   async function createNewChat() {
     if (!userId) return;
-    try {
-      const res = await fetch("/api/chats", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, title: "New Chat" }),
-      });
-      const { chat } = await res.json();
-      setChats([chat, ...chats]);
-      setCurrentChatId(chat.id);
-      setScenes([]);
-      setHasExistingScenes(false);
-      setPrompt("");
-    } catch (err) {
-      console.error("Failed to create chat:", err);
-    }
+    const newChat = await createNewChatInternal(userId);
+    const updated = [newChat, ...chats];
+    setChats(updated);
+    setCurrentChatId(newChat.id);
+    cacheChats(updated);
+    setHasExistingScenes(false);
+    setPrompt("");
+    setStitchedVideoUrl(null);
+    setError(null);
+    setProgress(0);
+    progressRef.current = 0;
   }
 
   async function deleteChat(chatId: string) {
     try {
       await fetch(`/api/chats?chatId=${chatId}`, { method: "DELETE" });
-      const newChats = chats.filter((c) => c.id !== chatId);
-      setChats(newChats);
-      if (currentChatId === chatId) {
-        setCurrentChatId(newChats[0]?.id || null);
-        if (newChats[0]) {
-          await loadScenes(newChats[0].id);
-        } else {
-          setScenes([]);
-          setHasExistingScenes(false);
-        }
+      const updated = chats.filter((c) => c.id !== chatId);
+      if (updated.length === 0 && userId) {
+        const newChat = await createNewChatInternal(userId);
+        setChats([newChat]);
+        setCurrentChatId(newChat.id);
+        cacheChats([newChat]);
+        setHasExistingScenes(false);
+      } else {
+        setChats(updated);
+        setCurrentChatId(updated[0]?.id || null);
+        cacheChats(updated);
       }
     } catch (err) {
       console.error("Failed to delete chat:", err);
@@ -142,41 +172,29 @@ export default function DashboardPage() {
       setError("Please create a chat first");
       return;
     }
-
     if (hasExistingScenes) {
       setError("Only one prompt allowed per chat. Create a new chat to generate more.");
       return;
     }
 
     setError(null);
-    setScenes([]);
     setLoading(true);
+    setProgress(1);
+    progressRef.current = 1;
+    setStitchedVideoUrl(null);
 
     try {
-      // 1️⃣ Generate Character
+      // 1️⃣ Character
       const charRes = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          mode: "character",
-          userId,
-          chatId: currentChatId,
-        }),
+        body: JSON.stringify({ prompt, mode: "character", userId, chatId: currentChatId }),
       });
+      if (!charRes.ok) throw new Error("Character generation failed");
+      const charData = (await charRes.json()).data;
+      setProgressSafe(10);
 
-      if (!charRes.ok) {
-        const errorData = await charRes.json().catch(() => ({ error: "Character generation failed" }));
-        throw new Error(errorData.error || "Character generation failed");
-      }
-      const charResponse = await charRes.json();
-      const charData = charResponse.data;
-
-      if (!charData?.image_prompt) {
-        throw new Error("Invalid character data received");
-      }
-
-      // 2️⃣ Generate Character Image
+      // 2️⃣ Character Image
       const imgRes = await fetch("/api/genImage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -188,39 +206,28 @@ export default function DashboardPage() {
           metadata: { chatId: currentChatId },
         }),
       });
-
-      if (!imgRes.ok) {
-        const errorData = await imgRes.json().catch(() => ({ error: "Character image generation failed" }));
-        throw new Error(errorData.error || "Character image generation failed");
-      }
+      if (!imgRes.ok) throw new Error("Character image generation failed");
       const { imageUrl: characterImageUrl } = await imgRes.json();
+      setProgressSafe(20);
 
-      console.log("Character created:", charData.name, "→", characterImageUrl);
-
-      // 3️⃣ Generate 3 Scenes
+      // 3️⃣ Scene prompts
       const sceneRes = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: `${prompt}\nCharacter: ${charData.name}\nDescription: ${charData.image_prompt}`,
+          prompt: `${prompt}\nCharacter: ${charData.name}\nDesc: ${charData.image_prompt}`,
           mode: "scenes",
           userId,
           chatId: currentChatId,
         }),
       });
+      if (!sceneRes.ok) throw new Error("Scene generation failed");
+      const scenesData = (await sceneRes.json()).data;
+      setProgressSafe(35);
 
-      if (!sceneRes.ok) {
-        const errorData = await sceneRes.json().catch(() => ({ error: "Scene generation failed" }));
-        throw new Error(errorData.error || "Scene generation failed");
-      }
-      const sceneResponse = await sceneRes.json();
-      const scenesData = sceneResponse.data;
-      if (!Array.isArray(scenesData) || scenesData.length !== 3)
-        throw new Error("Scene data malformed");
-
-      // 4️⃣ Generate Scene Images in Parallel
+      // 4️⃣ Scene Images (parallel)
       const sceneImages = await Promise.all(
-        scenesData.map(async (scene, index) => {
+        scenesData.map(async (scene: any) => {
           const img = await fetch("/api/genImage", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -232,100 +239,52 @@ export default function DashboardPage() {
               metadata: { chatId: currentChatId },
             }),
           });
-
-          if (!img.ok) {
-            const errorData = await img.json().catch(() => ({ error: `Scene ${index + 1} image failed` }));
-            throw new Error(errorData.error || `Scene ${index + 1} image failed`);
-          }
           const { imageUrl } = await img.json();
           return { imageUrl, sceneId: scene.id, videoPrompt: scene.scene_video_prompt };
         })
       );
+      setProgressSafe(55);
 
-      // 5️⃣ Display Scene Images
-      setScenes(sceneImages.map(s => ({ imageUrl: s.imageUrl })));
-      setHasExistingScenes(true);
-      setLoading(false);
-
-      // 6️⃣ Generate Videos in Parallel
-      setGeneratingVideos(true);
+      // 5️⃣ Videos (parallel)
       const videoResults = await Promise.all(
-        sceneImages.map(async (scene, index) => {
-          try {
-            console.log(`Starting video generation for scene ${index + 1}...`);
-            const videoRes = await fetch("/api/genVideo", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                prompt: scene.videoPrompt,
-                imageUrl: scene.imageUrl,
-                sceneId: scene.sceneId,
-                userId,
-                metadata: { chatId: currentChatId },
-              }),
-            });
-
-            if (!videoRes.ok) {
-              const errorData = await videoRes.json().catch(() => ({}));
-              console.error(`Video ${index + 1} generation failed:`, errorData);
-              return null;
-            }
-            const { videoUrl } = await videoRes.json();
-            console.log(`Video ${index + 1} completed:`, videoUrl);
-            return { index, videoUrl };
-          } catch (err) {
-            console.error(`Error generating video ${index + 1}:`, err);
-            return null;
-          }
-        })
-      );
-
-      // 7️⃣ Update scenes with video URLs
-      const updatedScenes = scenes.map((scene, idx) => {
-        const result = videoResults.find(r => r?.index === idx);
-        const updatedScene = result ? { ...scene, videoUrl: result.videoUrl } : scene;
-        if (updatedScene.videoUrl) {
-          console.log(`Scene ${idx + 1} video URL:`, updatedScene.videoUrl);
-        }
-        return updatedScene;
-      });
-      setScenes(updatedScenes);
-      setGeneratingVideos(false);
-
-      // Stitch videos if at least 2 are ready
-      const successfulVideos = updatedScenes.filter((s: SceneData) => s.videoUrl);
-      if (successfulVideos.length >= 2) {
-        console.log(`${successfulVideos.length} videos ready, starting stitch...`);
-        const videoUrls = successfulVideos.map(s => s.videoUrl!);
-        console.log("Video URLs:", videoUrls);
-        try {
-          const stitchRes = await fetch("/api/stitch", {
+        sceneImages.map(async (scene) => {
+          const res = await fetch("/api/genVideo", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ videoUrls, chatId: currentChatId, userId }),
+            body: JSON.stringify({
+              prompt: scene.videoPrompt,
+              imageUrl: scene.imageUrl,
+              sceneId: scene.sceneId,
+              userId,
+              metadata: { chatId: currentChatId },
+            }),
           });
-          if (stitchRes.ok) {
-            const { videoUrl } = await stitchRes.json();
-            console.log("Stitched video URL:", videoUrl);
-            setStitchedVideoUrl(videoUrl);
-          } else {
-            const errorText = await stitchRes.text();
-            console.error("Stitching failed:", stitchRes.status, errorText);
-            setError(`Video stitching failed (${stitchRes.status}). Individual videos are available below.`);
-          }
-        } catch (stitchErr) {
-          console.error("Stitch request error:", stitchErr);
-          setError("Video stitching failed. Individual videos are available below.");
-        }
+          const { videoUrl } = await res.json();
+          return videoUrl;
+        })
+      );
+      setProgressSafe(85);
+
+      // 6️⃣ Stitch
+      const validVideos = videoResults.filter(Boolean);
+      if (validVideos.length >= 2) {
+        const stitchRes = await fetch("/api/stitch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoUrls: validVideos, chatId: currentChatId, userId }),
+        });
+        const { videoUrl } = await stitchRes.json();
+        setStitchedVideoUrl(videoUrl);
+        setProgressDone();
+        setHasExistingScenes(true);
+      } else {
+        throw new Error("Not enough videos to stitch");
       }
-
-
-
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Something went wrong");
+    } finally {
       setLoading(false);
-      setGeneratingVideos(false);
     }
   }
 
@@ -342,7 +301,6 @@ export default function DashboardPage() {
             New Chat
           </button>
         </div>
-
         <div className="flex-1 overflow-y-auto px-2">
           {chats.map((chat) => (
             <div
@@ -352,7 +310,11 @@ export default function DashboardPage() {
               }`}
               onClick={() => {
                 setCurrentChatId(chat.id);
-                loadScenes(chat.id);
+                checkExistingScenes(chat.id);
+                setError(null);
+                setStitchedVideoUrl(null);
+                setProgress(0);
+                progressRef.current = 0;
               }}
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -373,13 +335,14 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* Main */}
       <div className="flex-1 flex flex-col">
         <div className="flex-1 overflow-y-auto p-8">
           <div className="max-w-3xl mx-auto">
             <h1 className="text-2xl font-semibold mb-4 text-center">
               Cinematic Scene Generator
             </h1>
+
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -400,29 +363,26 @@ export default function DashboardPage() {
                 disabled={loading || !prompt.trim() || !currentChatId}
                 className="px-6 py-2 bg-black text-white rounded-lg disabled:opacity-50 hover:bg-gray-800 transition"
               >
-                
-                {loading ? "Generating..." : "Generate"}
+                {loading ? "Working..." : "Generate"}
               </button>
             </div>
 
+            {error && <p className="text-red-600 text-center mt-4 font-medium">{error}</p>}
 
-
-            {error && (
-              <p className="text-red-600 text-center mt-4 font-medium">{error}</p>
+            {(loading || progress > 0) && progress < 100 && (
+              <div className="mt-8">
+                <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                  <div
+                    className="h-4 bg-black transition-all"
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+              </div>
             )}
-
-            {generatingVideos && (
-              <p className="text-blue-600 text-center mt-4 font-medium flex items-center justify-center gap-2">
-                <Video className="w-5 h-5 animate-pulse" />
-                Generating videos in background...
-              </p>
-            )}
-
-
 
             {stitchedVideoUrl && (
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold mb-4 text-center">Stitched Cinematic Video</h2>
+              <div className="mt-10">
+                <h2 className="text-xl font-semibold mb-4 text-center">✅ Final Cinematic</h2>
                 <div className="flex justify-center">
                   <video
                     src={stitchedVideoUrl}
@@ -430,56 +390,9 @@ export default function DashboardPage() {
                     className="max-w-full rounded-lg shadow-md"
                   />
                 </div>
+                <div className="mt-2 text-center text-sm text-gray-600">100% — Video completed</div>
               </div>
             )}
-
-            {/* Scene Images & Videos */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-8">
-            {scenes.map((scene, i) => (
-              <div
-                key={i}
-                className="relative aspect-square rounded-xl overflow-hidden shadow-md bg-gray-100"
-              >
-                {scene.videoUrl ? (
-                  <video
-                    src={scene.videoUrl}
-                    controls
-                    autoPlay
-                    loop
-                    muted
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <Image
-                    src={scene.imageUrl}
-                    alt={`Scene ${i + 1}`}
-                    fill
-                    className="object-cover"
-                  />
-                )}
-                <span className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
-                  {scene.videoUrl ? (
-                    <>
-                      <Video className="w-3 h-3" />
-                      Scene {i + 1}
-                    </>
-                  ) : (
-                    `Scene ${i + 1}`
-                  )}
-                </span>
-                {!scene.videoUrl && generatingVideos && (
-                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-                    <div className="text-center text-white">
-                      <Video className="w-8 h-8 mx-auto animate-pulse mb-2" />
-                      <p className="text-xs">Processing...</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-            </div>
-
-            <FinalVideos />
           </div>
         </div>
       </div>

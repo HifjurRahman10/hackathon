@@ -1,164 +1,107 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY;
+const WAVESPEED_API_KEY = process.env.WAVESPEED_API_KEY!;
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Ensure Supabase bucket exists and is public
 async function ensureBucket(name: string) {
   const { data: buckets } = await supabase.storage.listBuckets();
-  const existingBucket = buckets?.find((b) => b.name === name);
-  
-  if (!existingBucket) {
-    await supabase.storage.createBucket(name, { public: true });
-  } else if (!existingBucket.public) {
-    await supabase.storage.updateBucket(name, { public: true });
-  }
+  const existing = buckets?.find((b) => b.name === name);
+  if (!existing) await supabase.storage.createBucket(name, { public: true });
+  else if (!existing.public) await supabase.storage.updateBucket(name, { public: true });
 }
 
 async function pollVideoStatus(requestId: string): Promise<string> {
-  const maxAttempts = 120; // 2 minutes max (120 * 1 second)
+  const maxAttempts = 120; // 2 minutes max
   let attempts = 0;
 
   while (attempts < maxAttempts) {
-    const response = await fetch(
+    const res = await fetch(
       `https://api.wavespeed.ai/api/v3/predictions/${requestId}/result`,
-      {
-        headers: {
-          "Authorization": `Bearer ${WAVESPEED_API_KEY}`
-        }
-      }
+      { headers: { Authorization: `Bearer ${WAVESPEED_API_KEY}` } }
     );
+    const json = await res.json();
 
-    const result = await response.json();
-
-    if (response.ok) {
-      const data = result.data;
-      const status = data.status;
-
+    if (res.ok && json.data?.status) {
+      const status = json.data.status;
       if (status === "completed") {
-        const resultUrl = data.outputs[0];
-        console.log("Video generation completed. URL:", resultUrl);
-        return resultUrl;
+        const url = json.data.outputs[0];
+        console.log("✅ Video ready:", url);
+        return url;
       } else if (status === "failed") {
-        throw new Error(`Video generation failed: ${data.error || "Unknown error"}`);
+        throw new Error(`Video generation failed: ${json.data.error || "Unknown"}`);
       } else {
-        console.log(`Video still processing. Status: ${status}, Attempt: ${attempts + 1}`);
+        console.log(`⏳ Waiting (${attempts + 1}): ${status}`);
       }
     } else {
-      throw new Error(`Polling error: ${response.status}, ${JSON.stringify(result)}`);
+      console.error("Polling failed:", json);
+      throw new Error(`Polling error: ${res.status}`);
     }
 
-    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+    await new Promise((r) => setTimeout(r, 1000));
     attempts++;
   }
 
-  throw new Error("Video generation timeout - exceeded maximum wait time");
+  throw new Error("Video generation timeout");
 }
 
 export async function POST(req: Request) {
   try {
-    if (!WAVESPEED_API_KEY) {
-      return NextResponse.json(
-        { error: "WAVESPEED_API_KEY is not set in environment variables" },
-        { status: 500 }
-      );
-    }
-
-    let body;
-    try {
-      body = await req.json();
-    } catch (parseError) {
-      return NextResponse.json(
-        { error: "Invalid JSON in request body" },
-        { status: 400 }
-      );
-    }
-
-    const { prompt, imageUrl, sceneId, userId, metadata } = body;
-
-    if (!imageUrl || !sceneId) {
-      return NextResponse.json(
-        { error: "`imageUrl` and `sceneId` are required" },
-        { status: 400 }
-      );
-    }
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: "`userId` is required" },
-        { status: 400 }
-      );
-    }
+    const { prompt, imageUrl, sceneId, userId, metadata } = await req.json();
+    if (!WAVESPEED_API_KEY)
+      return NextResponse.json({ error: "Missing WAVESPEED_API_KEY" }, { status: 500 });
+    if (!imageUrl || !sceneId)
+      return NextResponse.json({ error: "`imageUrl` and `sceneId` required" }, { status: 400 });
+    if (!userId)
+      return NextResponse.json({ error: "`userId` required" }, { status: 400 });
 
     const bucket = "user_upload";
     await ensureBucket(bucket);
-
     const chatId = metadata?.chatId || "default-chat";
 
-    // Submit video generation request to Wavespeed
-    console.log(`Submitting video generation for scene ${sceneId}...`);
-    
-    const url = "https://api.wavespeed.ai/api/v3/bytedance/seedance-v1-pro-i2v-480p";
-    const headers = {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${WAVESPEED_API_KEY}`
-    };
-    
-    const payload = {
-      "image": imageUrl, // Scene image URL
-      "duration": 10,
-      "camera-fixed": false,
-      "seed": -1,
-      ...(prompt && { "prompt": prompt }) // Include prompt if provided
-    };
+    console.log(`🎬 Generating video for scene ${sceneId}...`);
 
-    const submitResponse = await fetch(url, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify(payload)
-    });
+    const submitRes = await fetch(
+      "https://api.wavespeed.ai/api/v3/bytedance/seedance-v1-pro-i2v-480p",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${WAVESPEED_API_KEY}`,
+        },
+        body: JSON.stringify({
+          image: imageUrl,
+          duration: 10,
+          "camera-fixed": false,
+          seed: -1,
+          ...(prompt && { prompt }),
+        }),
+      }
+    );
 
-    if (!submitResponse.ok) {
-      const errorText = await submitResponse.text();
-      console.error("Wavespeed submission error:", errorText);
-      return NextResponse.json(
-        { error: `Failed to submit video generation: ${submitResponse.status}` },
-        { status: 502 }
-      );
+    if (!submitRes.ok) {
+      const errTxt = await submitRes.text();
+      console.error("❌ Submit error:", errTxt);
+      return NextResponse.json({ error: "Wavespeed submission failed" }, { status: 502 });
     }
 
-    const submitResult = await submitResponse.json();
-    const requestId = submitResult.data.id;
-    console.log(`Video generation submitted. Request ID: ${requestId}`);
+    const submitJson = await submitRes.json();
+    const requestId = submitJson.data.id;
+    console.log("🆔 Wavespeed request:", requestId);
 
-    // Poll for completion
-    let videoUrl: string;
-    try {
-      videoUrl = await pollVideoStatus(requestId);
-    } catch (pollError: any) {
-      console.error("Video generation polling error:", pollError);
-      return NextResponse.json(
-        { error: pollError.message || "Video generation failed" },
-        { status: 502 }
-      );
-    }
+    const resultUrl = await pollVideoStatus(requestId);
+    console.log("🌐 Result URL:", resultUrl);
 
-    // Download the video from Wavespeed
-    console.log("Downloading video from Wavespeed...");
-    const videoResponse = await fetch(videoUrl);
-    if (!videoResponse.ok) {
-      throw new Error("Failed to download video from Wavespeed");
-    }
-    const videoArrayBuffer = await videoResponse.arrayBuffer();
-    const videoBuffer = Buffer.from(videoArrayBuffer);
-
-    // Upload to Supabase
+    // 🪄 Upload directly from URL to Supabase Storage
     const timestamp = Date.now();
     const filePath = `${userId}/${chatId}/scene_video_${timestamp}.mp4`;
+
+    const uploadRes = await fetch(resultUrl);
+    const videoArray = await uploadRes.arrayBuffer();
+    const videoBuffer = Buffer.from(videoArray);
 
     const { error: uploadError } = await supabase.storage
       .from(bucket)
@@ -169,44 +112,24 @@ export async function POST(req: Request) {
 
     if (uploadError) {
       console.error("Upload error:", uploadError);
-      return NextResponse.json(
-        { error: "Failed to upload video" },
-        { status: 500 }
-      );
+      throw uploadError;
     }
 
-    // Get public URL
     const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(filePath);
-    if (!urlData?.publicUrl) {
-      return NextResponse.json(
-        { error: "Failed to get public URL" },
-        { status: 500 }
-      );
-    }
+    const videoUrl = urlData.publicUrl;
 
-    const publicUrl = urlData.publicUrl;
+    // 🧾 Update scenes table
+    const { error: updateError } = await supabase
+      .from("scenes")
+      .update({ video_url: videoUrl })
+      .eq("id", sceneId);
 
-    // Update scene record with video URL
-    if (sceneId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
-      const { error: updateError } = await supabase
-        .from("scenes")
-        .update({
-          video_url: publicUrl,
-        })
-        .eq("id", sceneId);
-      
-      if (updateError) {
-        console.error("Failed to update scene record:", updateError);
-      }
-    }
+    if (updateError) console.error("DB update failed:", updateError);
+    else console.log(`✅ Scene ${sceneId} updated with video URL`);
 
-    console.log(`Video generated and uploaded successfully for scene ${sceneId}`);
-    return NextResponse.json({ videoUrl: publicUrl, filePath });
+    return NextResponse.json({ videoUrl, filePath });
   } catch (err: any) {
-    console.error("genVideo error:", err);
-    return NextResponse.json(
-      { error: err.message || "Unexpected error" },
-      { status: 500 }
-    );
+    console.error("🔥 genVideo error:", err);
+    return NextResponse.json({ error: err.message || "Unexpected error" }, { status: 500 });
   }
 }

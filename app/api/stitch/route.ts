@@ -3,75 +3,77 @@ import { spawn } from "child_process";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import ffmpegPath from "ffmpeg-static"; // ✅ Portable FFmpeg binary
+import ffmpegPath from "ffmpeg-static";
 import { createClient } from "@supabase/supabase-js";
 
-// ✅ Initialize Supabase client
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// ✅ Force Node runtime (not Edge)
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
-// ✅ Main handler
 export async function POST(req: Request) {
-  try {
-    const { videoUrls, userId, chatId } = await req.json();
+  console.log("🧩 /api/stitch invoked");
 
-    // --- Validate input ---
-    if (!Array.isArray(videoUrls) || videoUrls.length < 2) {
+  try {
+    // --- Parse and validate body ---
+    const bodyText = await req.text();
+    console.log("📩 Incoming body:", bodyText);
+    const { videoUrls, userId, chatId } = JSON.parse(bodyText || "{}");
+
+    if (!Array.isArray(videoUrls) || videoUrls.length < 2)
       return NextResponse.json({ error: "Need at least 2 videos" }, { status: 400 });
-    }
-    if (!userId || !chatId) {
+
+    if (!userId || !chatId)
       return NextResponse.json({ error: "Missing userId or chatId" }, { status: 400 });
-    }
 
     console.log(`🎬 Stitching ${videoUrls.length} videos for chat ${chatId}`);
+    console.log("FFmpeg binary path:", ffmpegPath);
 
     // --- Create temp working directory ---
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "stitch-"));
     const listFile = path.join(tmpDir, "list.txt");
     const outputFile = path.join(tmpDir, "final.mp4");
 
-    // --- Download input videos ---
+    // --- Download videos locally ---
     console.log("⬇️ Downloading scene videos...");
     const localFiles: string[] = [];
 
     for (let i = 0; i < videoUrls.length; i++) {
+      console.log(`🔹 Downloading ${videoUrls[i]}...`);
       const res = await fetch(videoUrls[i]);
-      if (!res.ok) throw new Error(`Failed to download video ${i + 1}`);
+      if (!res.ok) throw new Error(`Failed to download video ${i + 1}: ${res.status}`);
       const data = await res.arrayBuffer();
       const localPath = path.join(tmpDir, `scene_${i}.mp4`);
       await fs.writeFile(localPath, Buffer.from(data));
       localFiles.push(localPath);
     }
 
-    // --- Create FFmpeg list file ---
-    const listContent = localFiles.map((f) => `file '${f}'`).join("\n");
-    await fs.writeFile(listFile, listContent);
+    // --- Create FFmpeg concat list file ---
+    await fs.writeFile(listFile, localFiles.map(f => `file '${f}'`).join("\n"));
     console.log("🧾 Created FFmpeg concat list");
 
-    // --- Run FFmpeg ---
-    console.log("🎞️ Running FFmpeg concat...");
+    // --- Run FFmpeg (re-encode to ensure compatibility) ---
+    console.log("🎞️ Running FFmpeg concat + re-encode...");
     await new Promise<void>((resolve, reject) => {
       const ffmpeg = spawn(ffmpegPath!, [
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        listFile,
-        "-c",
-        "copy",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", listFile,
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-movflags", "+faststart",
         outputFile,
       ]);
 
-      ffmpeg.stderr.on("data", (d) => console.log(d.toString()));
-      ffmpeg.on("error", reject);
+      ffmpeg.stdout.on("data", (d) => console.log(d.toString()));
+      ffmpeg.stderr.on("data", (d) => console.error(d.toString()));
       ffmpeg.on("close", (code) => {
+        console.log("FFmpeg exited with code:", code);
         if (code === 0) resolve();
         else reject(new Error(`FFmpeg exited with code ${code}`));
       });
@@ -89,31 +91,33 @@ export async function POST(req: Request) {
         upsert: true,
       });
 
-    if (uploadError) throw uploadError;
+    if (uploadError) {
+      console.error("❌ Upload failed:", uploadError);
+      throw new Error(uploadError.message);
+    }
 
     const { data: urlData } = supabase.storage.from("user_upload").getPublicUrl(storagePath);
     const videoUrl = urlData.publicUrl;
 
-    // --- Insert into final_video table ---
+    // --- Insert record into final_video table ---
     console.log("🧾 Inserting record into final_video table...");
     const { error: dbError } = await supabase
       .from("final_video")
       .insert([{ chat_id: chatId, video_url: videoUrl }]);
 
-    if (dbError) console.error("❌ DB insert error:", dbError);
+    if (dbError) console.error("⚠️ DB insert error:", dbError);
     else console.log("✅ Record inserted successfully");
 
-    // --- Cleanup temp files ---
-    for (const file of localFiles) await fs.unlink(file).catch(() => {});
-    await fs.unlink(listFile).catch(() => {});
-    await fs.unlink(outputFile).catch(() => {});
-    await fs.rmdir(tmpDir).catch(() => {});
+    // --- Cleanup ---
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     console.log("✨ Cleanup complete");
 
     // --- Done ---
+    console.log("✅ Final stitched video:", videoUrl);
     return NextResponse.json({ success: true, videoUrl });
-  } catch (err: any) {
 
+  } catch (err: any) {
+    console.error("🔥 Stitch error:", err);
     return NextResponse.json({ error: err.message || "Unexpected error" }, { status: 500 });
   }
 }

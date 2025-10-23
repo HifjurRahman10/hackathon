@@ -3,22 +3,28 @@ import { spawn } from "child_process";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
-import ffmpegPath from "ffmpeg-static";
+import ffmpegPathImport from "ffmpeg-static";
 import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// ✅ Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// ✅ Ensure ffmpeg-static binary path works both locally & on Vercel
+const ffmpegPath =
+  ffmpegPathImport ||
+  path.join(process.cwd(), "node_modules/ffmpeg-static/ffmpeg");
+
 export async function POST(req: Request) {
   console.log("🧩 /api/stitch invoked");
 
   try {
-    // --- Parse and validate body ---
+    // --- Parse and validate request ---
     const bodyText = await req.text();
     console.log("📩 Incoming body:", bodyText);
     const { videoUrls, userId, chatId } = JSON.parse(bodyText || "{}");
@@ -30,14 +36,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing userId or chatId" }, { status: 400 });
 
     console.log(`🎬 Stitching ${videoUrls.length} videos for chat ${chatId}`);
-    console.log("FFmpeg binary path:", ffmpegPath);
+    console.log("FFmpeg path:", ffmpegPath);
 
-    // --- Create temp working directory ---
+    // --- Create temporary working directory ---
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "stitch-"));
     const listFile = path.join(tmpDir, "list.txt");
     const outputFile = path.join(tmpDir, "final.mp4");
 
-    // --- Download videos locally ---
+    // --- Download all videos locally ---
     console.log("⬇️ Downloading scene videos...");
     const localFiles: string[] = [];
 
@@ -55,10 +61,10 @@ export async function POST(req: Request) {
     await fs.writeFile(listFile, localFiles.map(f => `file '${f}'`).join("\n"));
     console.log("🧾 Created FFmpeg concat list");
 
-    // --- Run FFmpeg (re-encode to ensure compatibility) ---
+    // --- Run FFmpeg with re-encode (fixes codec mismatch issues) ---
     console.log("🎞️ Running FFmpeg concat + re-encode...");
     await new Promise<void>((resolve, reject) => {
-      const ffmpeg = spawn(ffmpegPath!, [
+      const ffmpeg = spawn(ffmpegPath, [
         "-f", "concat",
         "-safe", "0",
         "-i", listFile,
@@ -79,7 +85,7 @@ export async function POST(req: Request) {
       });
     });
 
-    // --- Upload stitched file to Supabase ---
+    // --- Upload final stitched video to Supabase ---
     console.log("📤 Uploading stitched video to Supabase...");
     const fileBuffer = await fs.readFile(outputFile);
     const storagePath = `${userId}/${chatId}/stitched_${Date.now()}.mp4`;
@@ -99,7 +105,7 @@ export async function POST(req: Request) {
     const { data: urlData } = supabase.storage.from("user_upload").getPublicUrl(storagePath);
     const videoUrl = urlData.publicUrl;
 
-    // --- Insert record into final_video table ---
+    // --- Insert into final_video table ---
     console.log("🧾 Inserting record into final_video table...");
     const { error: dbError } = await supabase
       .from("final_video")
@@ -108,7 +114,7 @@ export async function POST(req: Request) {
     if (dbError) console.error("⚠️ DB insert error:", dbError);
     else console.log("✅ Record inserted successfully");
 
-    // --- Cleanup ---
+    // --- Cleanup temp files ---
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     console.log("✨ Cleanup complete");
 

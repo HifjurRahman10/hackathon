@@ -4,7 +4,8 @@
       "runtime": "nodejs18.x",
       "memory": 1024,
       "maxDuration": 60,
-      "includeFiles": "node_modules/ffmpeg-static/**"
+      "includeFiles": "node_modules/ffmpeg-static/ffmpeg"
     }
   }
 }
+

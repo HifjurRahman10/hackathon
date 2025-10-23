@@ -1,10 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/stitch/route.ts": {
+    "app/api/stitch/route.ts": {
       "includeFiles": "node_modules/ffmpeg-static/ffmpeg",
       "memory": 1024,
       "maxDuration": 60
     }
   }
 }
+

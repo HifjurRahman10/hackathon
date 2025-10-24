@@ -1,26 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const RENDI_API_URL = "https://api.rendi.dev/v1/run-ffmpeg-command";
 const RENDI_API_KEY = process.env.RENDI_API_KEY!;
-
-// Poll job until complete
-async function pollRendi(jobId: string, maxAttempts = 120, delayMs = 5000) {
-  for (let i = 0; i < maxAttempts; i++) {
-    const res = await fetch(`https://api.rendi.dev/v1/jobs/${jobId}`, {
-      headers: { "x-api-key": RENDI_API_KEY },
-    });
-    const data = await res.json();
-
-    if (data.status === "completed") return data;
-    if (data.status === "failed") throw new Error(data.error || "Rendi job failed");
-
-    await new Promise((r) => setTimeout(r, delayMs));
-  }
-  throw new Error("Rendi job timed out");
-}
+const RENDI_API_URL = "https://api.rendi.dev/v1/run-ffmpeg-command";
 
 export async function POST(req: Request) {
+  console.log("🧩 /api/stitch (Rendi) invoked");
+
   try {
     const { videoUrls, userId, chatId } = await req.json();
 
@@ -29,16 +15,18 @@ export async function POST(req: Request) {
     if (!userId || !chatId)
       return NextResponse.json({ error: "Missing userId or chatId" }, { status: 400 });
 
-    // Build FFmpeg concat filter
+    console.log(`🎬 Stitching ${videoUrls.length} videos`);
+
+    // Build FFmpeg command (concat filter)
     const inputs = videoUrls.map((url) => `-i "${url}"`).join(" ");
     const n = videoUrls.length;
     const filter = videoUrls.map((_, i) => `[${i}:v][${i}:a]`).join("") + `concat=n=${n}:v=1:a=1[outv][outa]`;
     const ffmpegCommand = `${inputs} -filter_complex "${filter}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 23 -c:a aac -movflags +faststart output.mp4`;
 
-    console.log("⚙️ Sending FFmpeg job to Rendi:", ffmpegCommand);
+    console.log("⚙️ Sending FFmpeg command to Rendi:", ffmpegCommand);
 
-    // Step 1️⃣: Submit job via Rendi’s run-ffmpeg-command endpoint
-    const startRes = await fetch(RENDI_API_URL, {
+    // Step 1️⃣: Send request to Rendi
+    const rendiRes = await fetch(RENDI_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -47,24 +35,23 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         command: ffmpegCommand,
         output_files: ["output.mp4"],
+        wait_for_completion: true, // <--- key fix
       }),
     });
 
-    const startData = await startRes.json();
-    if (!startRes.ok || !startData.id)
-      throw new Error(startData.error || "Failed to start Rendi job");
+    const rendiData = await rendiRes.json();
+    console.log("📤 Rendi response:", rendiData);
 
-    const jobId = startData.id;
-    console.log("🎬 Rendi job started:", jobId);
+    if (!rendiRes.ok) {
+      throw new Error(rendiData.error || `Rendi API error: ${rendiRes.statusText}`);
+    }
 
-    // Step 2️⃣: Poll until done
-    const result = await pollRendi(jobId);
-    const outputUrl = result.output_files?.[0]?.url;
+    const outputUrl = rendiData.output_files?.[0]?.url;
     if (!outputUrl) throw new Error("No output file returned from Rendi");
 
-    console.log("✅ Job done:", outputUrl);
+    console.log("✅ Rendi completed, output:", outputUrl);
 
-    // Step 3️⃣: Upload stitched video to Supabase
+    // Step 2️⃣: Upload to Supabase
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -76,16 +63,14 @@ export async function POST(req: Request) {
 
     const { error: uploadError } = await supabase.storage
       .from("user_upload")
-      .upload(storagePath, buffer, {
-        contentType: "video/mp4",
-      });
+      .upload(storagePath, buffer, { contentType: "video/mp4" });
 
     if (uploadError) throw uploadError;
 
     const { data: urlData } = supabase.storage.from("user_upload").getPublicUrl(storagePath);
     const finalVideoUrl = urlData.publicUrl;
 
-    // Step 4️⃣: Save record
+    // Step 3️⃣: Save record
     await supabase.from("final_video").insert([{ chat_id: chatId, video_url: finalVideoUrl }]);
 
     return NextResponse.json({ success: true, videoUrl: finalVideoUrl });

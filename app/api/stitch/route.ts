@@ -17,36 +17,29 @@ export async function POST(req: Request) {
 
     console.log(`🎬 Stitching ${videoUrls.length} videos`);
 
-    // Build input aliases
-    const inputAliases: Record<string, string> = {};
-    videoUrls.forEach((url, i) => {
-      inputAliases[`in_${i}`] = url;
+    const input_files: Record<string, string> = {};
+    const inputRefs = videoUrls.map((url, i) => {
+      const alias = `in_${i}`;
+      input_files[alias] = url;
+      return `-i {{${alias}}}`;
     });
 
-    // Build FFmpeg input and filter strings
-    const inputFlags = Object.keys(inputAliases)
-      .map((key) => `-i {{${key}}}`)
-      .join(" ");
-    const filter =
-      Object.keys(inputAliases)
-        .map((_, i) => `[${i}:v][${i}:a]`)
-        .join("") + `concat=n=${videoUrls.length}:v=1:a=1[outv][outa]`;
+    const filter = videoUrls.map((_, i) => `[${i}:v][${i}:a]`).join("") +
+      `concat=n=${videoUrls.length}:v=1:a=1[outv][outa]`;
 
-    const outputFileName = "stitched_output.mp4";
     const outputAlias = "out_1";
+    const outputFileName = "stitched_output.mp4";
 
-    const ffmpegCommand = `${inputFlags} -filter_complex "${filter}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 23 -c:a aac -movflags +faststart {{${outputAlias}}}`;
+    const ffmpegCommand = `${inputRefs.join(" ")} -filter_complex "${filter}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 23 -c:a aac -movflags +faststart {{${outputAlias}}}`;
 
     console.log("⚙️ FFmpeg command:", ffmpegCommand);
 
     const payload = {
-      command: ffmpegCommand,
-      input_files: inputAliases,
-      output_files: {
-        [outputAlias]: outputFileName
-      },
+      ffmpeg_command: ffmpegCommand,
+      input_files,
+      output_files: { [outputAlias]: outputFileName },
       wait_for_completion: true,
-      vcpu_count: 4,
+      vcpu_count: 2,
     };
 
     console.log("📦 Payload to Rendi:", JSON.stringify(payload, null, 2));
@@ -55,9 +48,9 @@ export async function POST(req: Request) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-API-KEY": RENDI_API_KEY
+        "X-API-KEY": RENDI_API_KEY,
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
 
     const rendiData = await rendiRes.json();
@@ -65,18 +58,13 @@ export async function POST(req: Request) {
 
     if (!rendiRes.ok) {
       throw new Error(
-        rendiData?.detail?.[0]?.msg ||
-        rendiData?.error ||
-        `Rendi error: ${rendiRes.statusText}`
+        rendiData.error || rendiData.detail?.[0]?.msg || `Rendi API error: ${rendiRes.statusText}`
       );
     }
 
     const outputUrl = rendiData.output_files?.[outputAlias];
     if (!outputUrl) throw new Error("No output file returned from Rendi");
 
-    console.log("✅ Output video URL:", outputUrl);
-
-    // Upload to Supabase
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -95,14 +83,11 @@ export async function POST(req: Request) {
     const { data: urlData } = supabase.storage
       .from("user_upload")
       .getPublicUrl(storagePath);
+
     const finalVideoUrl = urlData.publicUrl;
 
     await supabase.from("final_video").insert([
-      {
-        chat_id: chatId,
-        video_url: finalVideoUrl,
-        created_at: new Date().toISOString()
-      }
+      { chat_id: chatId, video_url: finalVideoUrl, created_at: new Date().toISOString() },
     ]);
 
     return NextResponse.json({ success: true, videoUrl: finalVideoUrl });

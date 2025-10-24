@@ -45,7 +45,6 @@ export async function POST(req: Request) {
       wait_for_completion: true,
       vcpu_count:4,
     };
-
     console.log("📦 Payload to Rendi:", JSON.stringify(payload, null, 2));
 
     // Step 4️⃣: Send to Rendi

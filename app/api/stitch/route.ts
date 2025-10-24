@@ -17,36 +17,40 @@ export async function POST(req: Request) {
 
     console.log(`🎬 Stitching ${videoUrls.length} videos`);
 
-    // --- STEP 1️⃣ Build input_files for Rendi ---
-    const inputFiles = videoUrls.map((url, i) => ({
-      path: `input${i}.mp4`, // name inside Rendi container
-      url, // public URL from Supabase
+    // ✅ STEP 1: Ensure each input file is a plain object
+    const input_files = videoUrls.map((url, i) => ({
+      path: `input${i}.mp4`,
+      url,
     }));
 
-    // --- STEP 2️⃣ Build FFmpeg command referencing those local inputs ---
-    const inputs = inputFiles.map((f) => `-i ${f.path}`).join(" ");
-    const n = inputFiles.length;
+    // ✅ STEP 2: FFmpeg command referencing those paths
+    const inputs = input_files.map((f) => `-i ${f.path}`).join(" ");
+    const n = input_files.length;
     const filter =
-      inputFiles.map((_, i) => `[${i}:v][${i}:a]`).join("") +
+      input_files.map((_, i) => `[${i}:v][${i}:a]`).join("") +
       `concat=n=${n}:v=1:a=1[outv][outa]`;
 
     const ffmpegCommand = `${inputs} -filter_complex "${filter}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 23 -c:a aac -movflags +faststart output.mp4`;
 
     console.log("⚙️ Sending FFmpeg command to Rendi:", ffmpegCommand);
 
-    // --- STEP 3️⃣ Submit to Rendi ---
+    // ✅ STEP 3: Build correct JSON payload
+    const payload = {
+      command: ffmpegCommand,
+      input_files, // <— this must be an array of { path, url } objects
+      output_files: [{ path: "output.mp4" }],
+      wait_for_completion: true,
+    };
+
+    console.log("📦 Payload to Rendi:", JSON.stringify(payload, null, 2));
+
     const rendiRes = await fetch(RENDI_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-api-key": RENDI_API_KEY,
       },
-      body: JSON.stringify({
-        input_files: inputFiles, // ✅ Rendi downloads these first
-        command: ffmpegCommand,
-        output_files: [{ path: "output.mp4" }], // ✅ must be objects, not strings
-        wait_for_completion: true,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const rendiData = await rendiRes.json();
@@ -65,7 +69,7 @@ export async function POST(req: Request) {
 
     console.log("✅ Rendi completed, output:", outputUrl);
 
-    // --- STEP 4️⃣ Upload to Supabase ---
+    // ✅ STEP 4: Upload to Supabase
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -86,7 +90,6 @@ export async function POST(req: Request) {
       .getPublicUrl(storagePath);
     const finalVideoUrl = urlData.publicUrl;
 
-    // --- STEP 5️⃣ Record to DB ---
     await supabase.from("final_video").insert([
       { chat_id: chatId, video_url: finalVideoUrl, created_at: new Date().toISOString() },
     ]);

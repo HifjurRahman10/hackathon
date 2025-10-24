@@ -17,13 +17,13 @@ export async function POST(req: Request) {
 
     console.log(`🎬 Stitching ${videoUrls.length} videos`);
 
-    // Step 1️⃣: Create alias-based input file map
+    // Step 1️⃣: Create input alias map
     const inputAliasMap: Record<string, string> = {};
     videoUrls.forEach((url, i) => {
       inputAliasMap[`in_${i}`] = url;
     });
 
-    // Step 2️⃣: Build FFmpeg command using {{in_x}} and {{out_1}}
+    // Step 2️⃣: Build FFmpeg command using Rendi alias format
     const inputRefs = Object.keys(inputAliasMap)
       .map((key) => `-i {{${key}}}`)
       .join(" ");
@@ -35,23 +35,19 @@ export async function POST(req: Request) {
     const outputFileName = "stitched_output.mp4";
     const command = `${inputRefs} -filter_complex "${filter}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 23 -c:a aac -movflags +faststart {{${outputFileKey}}}`;
 
-    // Step 3️⃣: Construct final Rendi payload
+    // Step 3️⃣: Build Rendi payload
     const payload = {
       command,
-      input_files: {
-        inputs: inputAliasMap,
-      },
+      input_files: inputAliasMap,
       output_files: {
-        outputs: {
-          [outputFileKey]: outputFileName,
-        },
+        [outputFileKey]: outputFileName,
       },
       wait_for_completion: true,
     };
 
     console.log("📦 Payload to Rendi:", JSON.stringify(payload, null, 2));
 
-    // Step 4️⃣: Submit job to Rendi
+    // Step 4️⃣: Send to Rendi
     const rendiRes = await fetch(RENDI_API_URL, {
       method: "POST",
       headers: {
@@ -72,7 +68,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const outputUrl = rendiData.output_files?.outputs?.[outputFileKey]?.url;
+    const outputUrl = rendiData.output_files?.[outputFileKey]?.url;
     if (!outputUrl) throw new Error("No output file URL returned from Rendi");
 
     console.log("✅ Rendi completed. Output URL:", outputUrl);

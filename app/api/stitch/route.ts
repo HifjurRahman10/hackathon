@@ -46,7 +46,7 @@ export async function POST(req: Request) {
         [outputAlias]: outputFileName
       },
       wait_for_completion: true,
-      vcpus: 1
+      vcpu_count: 4,
     };
 
     console.log("📦 Payload to Rendi:", JSON.stringify(payload, null, 2));

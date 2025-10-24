@@ -4,35 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 const RENDI_API_KEY = process.env.RENDI_API_KEY!;
 const RENDI_API_URL = "https://api.rendi.dev/v1/run-ffmpeg-command";
 
-const pollCommandStatus = async (
-  commandId: string,
-  outputAlias: string,
-  retries = 10,
-  delay = 3000
-): Promise<string> => {
-  const statusUrl = `https://api.rendi.dev/v1/commands/${commandId}`;
-  for (let i = 0; i < retries; i++) {
-    const res = await fetch(statusUrl, {
-      headers: { "X-API-KEY": RENDI_API_KEY },
-    });
-    const data = await res.json();
-    console.log(`⏱️ [${i + 1}] Status: ${data.status}`);
-
-    if (data.status === "SUCCESS") {
-      const url = data.output_files?.[outputAlias]?.storage_url;
-      if (!url) throw new Error("No output file URL in success response");
-      return url;
-    }
-
-    if (data.status === "FAILED") {
-      throw new Error(data.error_message || "Rendi command failed");
-    }
-
-    await new Promise((r) => setTimeout(r, delay));
-  }
-  throw new Error("Timeout: Rendi command didn't finish in time");
-};
-
 export async function POST(req: Request) {
   console.log("🧩 /api/stitch (Rendi) invoked");
 
@@ -41,6 +12,7 @@ export async function POST(req: Request) {
 
     if (!Array.isArray(videoUrls) || videoUrls.length < 2)
       return NextResponse.json({ error: "Need at least 2 videos" }, { status: 400 });
+
     if (!userId || !chatId)
       return NextResponse.json({ error: "Missing userId or chatId" }, { status: 400 });
 
@@ -53,14 +25,13 @@ export async function POST(req: Request) {
       return `-i {{${alias}}}`;
     });
 
+    const inputArgs = inputRefs.join(" ");
+    const filter = videoUrls.map((_, i) => `[${i}:v]`).join("") + `concat=n=${videoUrls.length}:v=1:a=0[outv]`;
+
     const outputAlias = "out_1";
     const outputFileName = "stitched_output.mp4";
 
-    // Only video (no audio)
-    const filter = videoUrls.map((_, i) => `[${i}:v]`).join("") +
-      `concat=n=${videoUrls.length}:v=1:a=0[outv]`;
-
-    const ffmpegCommand = `${inputRefs.join(" ")} -filter_complex "${filter}" -map "[outv]" -c:v libx264 -preset fast -crf 23 -movflags +faststart {{${outputAlias}}}`;
+    const ffmpegCommand = `${inputArgs} -filter_complex "${filter}" -map "[outv]" -c:v libx264 -preset fast -crf 23 -movflags +faststart {{${outputAlias}}}`;
 
     console.log("⚙️ FFmpeg command:", ffmpegCommand);
 
@@ -92,7 +63,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const outputUrl = await pollCommandStatus(rendiData.command_id, outputAlias);
+    const outputUrl = rendiData.output_files?.[outputAlias]?.storage_url;
+    if (!outputUrl) throw new Error("No output file returned from Rendi");
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -115,13 +87,14 @@ export async function POST(req: Request) {
 
     const finalVideoUrl = urlData.publicUrl;
 
-    await supabase.from("final_video").insert([
+    // ✅ Insert into final_video table
+    const { error: insertError } = await supabase.from("final_video").insert([
       {
         chat_id: chatId,
         video_url: finalVideoUrl,
-        created_at: new Date().toISOString(),
       },
     ]);
+    if (insertError) throw insertError;
 
     return NextResponse.json({ success: true, videoUrl: finalVideoUrl });
   } catch (err: any) {

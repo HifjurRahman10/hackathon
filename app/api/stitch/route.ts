@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const RENDI_API_KEY = process.env.RENDI_API_KEY!;
 const RENDI_API_URL = "https://api.rendi.dev/v1/run-ffmpeg-command";
+const POLL_URL = "https://api.rendi.dev/v1/commands";
 
 export async function POST(req: Request) {
   console.log("🧩 /api/stitch (Rendi) invoked");
@@ -10,11 +11,12 @@ export async function POST(req: Request) {
   try {
     const { videoUrls, userId, chatId } = await req.json();
 
-    if (!Array.isArray(videoUrls) || videoUrls.length < 2)
+    if (!Array.isArray(videoUrls) || videoUrls.length < 2) {
       return NextResponse.json({ error: "Need at least 2 videos" }, { status: 400 });
-
-    if (!userId || !chatId)
+    }
+    if (!userId || !chatId) {
       return NextResponse.json({ error: "Missing userId or chatId" }, { status: 400 });
+    }
 
     console.log(`🎬 Stitching ${videoUrls.length} videos`);
 
@@ -25,13 +27,13 @@ export async function POST(req: Request) {
       return `-i {{${alias}}}`;
     });
 
-    const inputArgs = inputRefs.join(" ");
-    const filter = videoUrls.map((_, i) => `[${i}:v]`).join("") + `concat=n=${videoUrls.length}:v=1:a=0[outv]`;
+    const filter = videoUrls.map((_, i) => `[${i}:v]`).join("") +
+      `concat=n=${videoUrls.length}:v=1:a=0[outv]`;
 
     const outputAlias = "out_1";
     const outputFileName = "stitched_output.mp4";
 
-    const ffmpegCommand = `${inputArgs} -filter_complex "${filter}" -map "[outv]" -c:v libx264 -preset fast -crf 23 -movflags +faststart {{${outputAlias}}}`;
+    const ffmpegCommand = `${inputRefs.join(" ")} -filter_complex "${filter}" -map "[outv]" -c:v libx264 -preset fast -crf 23 -movflags +faststart {{${outputAlias}}}`;
 
     console.log("⚙️ FFmpeg command:", ffmpegCommand);
 
@@ -39,13 +41,13 @@ export async function POST(req: Request) {
       ffmpeg_command: ffmpegCommand,
       input_files,
       output_files: { [outputAlias]: outputFileName },
-      wait_for_completion: true,
+      wait_for_completion: false,
       vcpu_count: 2,
     };
 
-    console.log("📦 Payload to Rendi:", JSON.stringify(payload, null, 2));
+    console.log("📦 Payload to Rendi:", payload);
 
-    const rendiRes = await fetch(RENDI_API_URL, {
+    const submitRes = await fetch(RENDI_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -54,18 +56,41 @@ export async function POST(req: Request) {
       body: JSON.stringify(payload),
     });
 
-    const rendiData = await rendiRes.json();
-    console.log("📤 Rendi response:", rendiData);
+    const submitData = await submitRes.json();
+    console.log("📤 Rendi response:", submitData);
 
-    if (!rendiRes.ok) {
-      throw new Error(
-        rendiData.error || rendiData.detail?.[0]?.msg || `Rendi API error: ${rendiRes.statusText}`
-      );
+    if (!submitRes.ok || !submitData.command_id) {
+      throw new Error(submitData.error || submitData.detail?.[0]?.msg || "Failed to submit FFmpeg job");
     }
 
-    const outputUrl = rendiData.output_files?.[outputAlias]?.storage_url;
-    if (!outputUrl) throw new Error("No output file returned from Rendi");
+    // ⏱️ Poll for result
+    const commandId = submitData.command_id;
+    let outputUrl: string | null = null;
+    let attempts = 0;
+    let status = "QUEUED";
 
+    while (attempts < 30) {
+      await new Promise((r) => setTimeout(r, 3000));
+      const pollRes = await fetch(`${POLL_URL}/${commandId}`, {
+        headers: { "X-API-KEY": RENDI_API_KEY },
+      });
+      const pollData = await pollRes.json();
+      status = pollData.status;
+      console.log(`⏱️ Poll [${attempts + 1}] Status: ${status}`);
+
+      if (status === "SUCCESS") {
+        outputUrl = pollData.output_files?.[outputAlias]?.storage_url;
+        break;
+      } else if (status === "FAILED") {
+        throw new Error(pollData.error_message || "Rendi job failed.");
+      }
+
+      attempts++;
+    }
+
+    if (!outputUrl) throw new Error("Timed out waiting for Rendi output");
+
+    // ⬆️ Upload stitched video to Supabase Storage
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -84,24 +109,19 @@ export async function POST(req: Request) {
     const { data: urlData } = supabase.storage
       .from("user_upload")
       .getPublicUrl(storagePath);
-
     const finalVideoUrl = urlData.publicUrl;
 
-    // ✅ Insert into final_video table
-    const { error: insertError } = await supabase.from("final_video").insert([
-      {
-        chat_id: chatId,
-        video_url: finalVideoUrl,
-      },
-    ]);
-    if (insertError) throw insertError;
+    // 🧾 Insert to final_video table
+    const { error: dbError } = await supabase
+      .from("final_video")
+      .insert([{ chat_id: chatId, video_url: finalVideoUrl }]);
+
+    if (dbError) throw dbError;
 
     return NextResponse.json({ success: true, videoUrl: finalVideoUrl });
+
   } catch (err: any) {
     console.error("🔥 Rendi Stitch Error:", err);
-    return NextResponse.json(
-      { error: err.message || "Unexpected error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || "Unexpected error" }, { status: 500 });
   }
 }

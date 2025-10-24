@@ -10,45 +10,48 @@ export async function POST(req: Request) {
   try {
     const { videoUrls, userId, chatId } = await req.json();
 
-    if (!Array.isArray(videoUrls) || videoUrls.length < 2) {
+    if (!Array.isArray(videoUrls) || videoUrls.length < 2)
       return NextResponse.json({ error: "Need at least 2 videos" }, { status: 400 });
-    }
-    if (!userId || !chatId) {
+    if (!userId || !chatId)
       return NextResponse.json({ error: "Missing userId or chatId" }, { status: 400 });
-    }
 
     console.log(`🎬 Stitching ${videoUrls.length} videos`);
 
-    // Step 1️⃣: Create input aliases and dictionary
-    const input_files: Record<string, string> = {};
+    // Step 1️⃣: Create alias-based input file map
+    const inputAliasMap: Record<string, string> = {};
     videoUrls.forEach((url, i) => {
-      input_files[`in_${i}`] = url;
+      inputAliasMap[`in_${i}`] = url;
     });
 
-    // Step 2️⃣: Build FFmpeg command using {{in_0}}, {{in_1}}, etc.
-    const inputRefs = Object.keys(input_files)
+    // Step 2️⃣: Build FFmpeg command using {{in_x}} and {{out_1}}
+    const inputRefs = Object.keys(inputAliasMap)
       .map((key) => `-i {{${key}}}`)
       .join(" ");
-    const filter = Object.keys(input_files)
+    const filter = Object.keys(inputAliasMap)
       .map((_, i) => `[${i}:v][${i}:a]`)
       .join("") + `concat=n=${videoUrls.length}:v=1:a=1[outv][outa]`;
-    const output_filename = "stitched_output.mp4";
 
-    const command = `${inputRefs} -filter_complex "${filter}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 23 -c:a aac -movflags +faststart {{out_1}}`;
+    const outputFileKey = "out_1";
+    const outputFileName = "stitched_output.mp4";
+    const command = `${inputRefs} -filter_complex "${filter}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 23 -c:a aac -movflags +faststart {{${outputFileKey}}}`;
 
-    // Step 3️⃣: Build Rendi payload
+    // Step 3️⃣: Construct final Rendi payload
     const payload = {
       command,
-      input_files,
+      input_files: {
+        inputs: inputAliasMap,
+      },
       output_files: {
-        out_1: output_filename,
+        outputs: {
+          [outputFileKey]: outputFileName,
+        },
       },
       wait_for_completion: true,
     };
 
     console.log("📦 Payload to Rendi:", JSON.stringify(payload, null, 2));
 
-    // Step 4️⃣: Send to Rendi
+    // Step 4️⃣: Submit job to Rendi
     const rendiRes = await fetch(RENDI_API_URL, {
       method: "POST",
       headers: {
@@ -64,19 +67,17 @@ export async function POST(req: Request) {
     if (!rendiRes.ok) {
       throw new Error(
         rendiData.error ||
-        rendiData.detail?.[0]?.msg ||
-        `Rendi API error: ${rendiRes.statusText}`
+          rendiData.detail?.[0]?.msg ||
+          `Rendi API error: ${rendiRes.statusText}`
       );
     }
 
-    const outputUrl = rendiData.output_files?.out_1?.url;
-    if (!outputUrl) {
-      throw new Error("No output file URL returned from Rendi");
-    }
+    const outputUrl = rendiData.output_files?.outputs?.[outputFileKey]?.url;
+    if (!outputUrl) throw new Error("No output file URL returned from Rendi");
 
     console.log("✅ Rendi completed. Output URL:", outputUrl);
 
-    // Step 5️⃣: Upload to Supabase
+    // Step 5️⃣: Upload final stitched video to Supabase
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -98,7 +99,7 @@ export async function POST(req: Request) {
 
     const finalVideoUrl = urlData.publicUrl;
 
-    // Step 6️⃣: Log to DB
+    // Step 6️⃣: Save metadata to DB
     await supabase.from("final_video").insert([
       {
         chat_id: chatId,

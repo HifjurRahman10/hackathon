@@ -17,30 +17,36 @@ export async function POST(req: Request) {
 
     console.log(`🎬 Stitching ${videoUrls.length} videos`);
 
-    // ✅ Alias input files
-    const input_files: Record<string, string> = {};
+    // 🧱 Build input file aliases and input_file object
+    const inputAliasMap: Record<string, string> = {};
     videoUrls.forEach((url, i) => {
-      input_files[`in_${i}`] = url;
+      inputAliasMap[`in_${i}`] = url;
     });
 
-    // ✅ Use aliases in FFmpeg command
-    const inputs = videoUrls.map((_, i) => `-i {{in_${i}}}`).join(" ");
-    const filter = videoUrls.map((_, i) => `[${i}:v][${i}:a]`).join("") +
-                   `concat=n=${videoUrls.length}:v=1:a=1[outv][outa]`;
+    // 🎯 Construct FFmpeg command with Rendi-style aliases
+    const inputFlags = Object.keys(inputAliasMap)
+      .map((alias) => `-i {{${alias}}}`)
+      .join(" ");
 
-    const outputFileKey = "out_1";
+    const filterComplex = Object.keys(inputAliasMap)
+      .map((_, i) => `[${i}:v][${i}:a]`)
+      .join("") + `concat=n=${videoUrls.length}:v=1:a=1[outv][outa]`;
+
+    const outputKey = "out_1";
     const outputFileName = "stitched_output.mp4";
 
-    const command = `${inputs} -filter_complex "${filter}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 23 -c:a aac -movflags +faststart -y {{${outputFileKey}}}`;
+    const command = `${inputFlags} -filter_complex "${filterComplex}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 23 -c:a aac -movflags +faststart -y {{${outputKey}}}`;
 
     console.log("⚙️ FFmpeg command:", command);
 
-    // ✅ Rendi API payload
     const payload = {
       command,
-      input_files,
+      input_files: inputAliasMap,
       output_files: {
-        [outputFileKey]: outputFileName,
+        [outputKey]: {
+          path: outputFileName,
+          public: true,
+        },
       },
       wait_for_completion: true,
       vcpus: 1,
@@ -60,20 +66,14 @@ export async function POST(req: Request) {
     const rendiData = await rendiRes.json();
     console.log("📤 Rendi response:", rendiData);
 
-    if (!rendiRes.ok) {
-      throw new Error(
-        rendiData.error ||
-        rendiData.detail?.[0]?.msg ||
-        `Rendi API error: ${rendiRes.statusText}`
-      );
+    if (!rendiRes.ok || !rendiData.output_files?.[outputKey]?.url) {
+      throw new Error(rendiData.error || rendiData.detail?.[0]?.msg || "Rendi job failed");
     }
 
-    const outputUrl = rendiData.output_files?.[outputFileKey]?.url;
-    if (!outputUrl) throw new Error("No output file returned from Rendi");
-
+    const outputUrl = rendiData.output_files[outputKey].url;
     console.log("✅ Rendi completed, output:", outputUrl);
 
-    // ✅ Upload to Supabase
+    // ☁️ Upload to Supabase
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!

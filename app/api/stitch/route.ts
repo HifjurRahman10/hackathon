@@ -3,7 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 
 const RENDI_API_KEY = process.env.RENDI_API_KEY!;
 const RENDI_API_URL = "https://api.rendi.dev/v1/run-ffmpeg-command";
-const RENDI_POLL_URL = "https://api.rendi.dev/v1/commands";
 
 export async function POST(req: Request) {
   console.log("🧩 /api/stitch (Rendi) invoked");
@@ -11,10 +10,12 @@ export async function POST(req: Request) {
   try {
     const { videoUrls, userId, chatId } = await req.json();
 
-    if (!Array.isArray(videoUrls) || videoUrls.length < 2)
+    if (!Array.isArray(videoUrls) || videoUrls.length < 2) {
       return NextResponse.json({ error: "Need at least 2 videos" }, { status: 400 });
-    if (!userId || !chatId)
+    }
+    if (!userId || !chatId) {
       return NextResponse.json({ error: "Missing userId or chatId" }, { status: 400 });
+    }
 
     console.log(`🎬 Stitching ${videoUrls.length} videos`);
 
@@ -25,14 +26,14 @@ export async function POST(req: Request) {
       return `-i {{${alias}}}`;
     });
 
-    const filter =
-      videoUrls.map((_, i) => `[${i}:v][${i}:a]`).join("") +
-      `concat=n=${videoUrls.length}:v=1:a=1[outv][outa]`;
+    // Video-only concat (no audio)
+    const filter = videoUrls.map((_, i) => `[${i}:v]`).join("") +
+      `concat=n=${videoUrls.length}:v=1:a=0[outv]`;
 
     const outputAlias = "out_1";
     const outputFileName = "stitched_output.mp4";
 
-    const ffmpegCommand = `${inputRefs.join(" ")} -filter_complex "${filter}" -map "[outv]" -map "[outa]" -c:v libx264 -preset fast -crf 23 -c:a aac -movflags +faststart {{${outputAlias}}}`;
+    const ffmpegCommand = `${inputRefs.join(" ")} -filter_complex "${filter}" -map "[outv]" -c:v libx264 -preset fast -crf 23 -movflags +faststart {{${outputAlias}}}`;
 
     console.log("⚙️ FFmpeg command:", ffmpegCommand);
 
@@ -40,12 +41,13 @@ export async function POST(req: Request) {
       ffmpeg_command: ffmpegCommand,
       input_files,
       output_files: { [outputAlias]: outputFileName },
+      wait_for_completion: true,
       vcpu_count: 2,
     };
 
     console.log("📦 Payload to Rendi:", JSON.stringify(payload, null, 2));
 
-    const commandRes = await fetch(RENDI_API_URL, {
+    const rendiRes = await fetch(RENDI_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -54,46 +56,17 @@ export async function POST(req: Request) {
       body: JSON.stringify(payload),
     });
 
-    const commandData = await commandRes.json();
-    console.log("📤 Rendi response:", commandData);
+    const rendiData = await rendiRes.json();
+    console.log("📤 Rendi response:", rendiData);
 
-    if (!commandRes.ok || !commandData.command_id) {
+    if (!rendiRes.ok || !rendiData.output_files?.[outputAlias]?.storage_url) {
       throw new Error(
-        commandData?.detail?.[0]?.msg ||
-          commandData?.error ||
-          "Failed to submit FFmpeg command"
+        rendiData.error || rendiData.detail?.[0]?.msg || `Rendi API error: ${rendiRes.statusText}`
       );
     }
 
-    const commandId = commandData.command_id;
+    const outputUrl = rendiData.output_files[outputAlias].storage_url;
 
-    // 🕒 Poll for command completion
-    let status = "";
-    let outputUrl = "";
-    for (let i = 0; i < 30; i++) {
-      const pollRes = await fetch(`${RENDI_POLL_URL}/${commandId}`, {
-        headers: { "X-API-KEY": RENDI_API_KEY },
-      });
-      const pollData = await pollRes.json();
-
-      status = pollData.status;
-      console.log(`⏱️ [${i + 1}] Status: ${status}`);
-
-      if (status === "SUCCESS") {
-        outputUrl = pollData.output_files?.[outputAlias]?.storage_url;
-        break;
-      }
-
-      if (status === "FAILED") {
-        throw new Error(pollData?.error_message || "Rendi command failed");
-      }
-
-      await new Promise((r) => setTimeout(r, 4000));
-    }
-
-    if (!outputUrl) throw new Error("No output file returned from Rendi");
-
-    // 🎯 Upload to Supabase
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!

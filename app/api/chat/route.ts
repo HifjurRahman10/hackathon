@@ -118,11 +118,10 @@ EXAMPLE:
 }`;
     } else if (mode === "scenes") {
      systemPrompt = "You are a MASTER CINEMATIC SCENE DESIGNER. Generate six connected scenes forming a continuous cinematic story. Output MUST be valid JSON: an array of six objects, each with 'scene_image_prompt' and 'scene_video_prompt'. No text outside JSON. \
-scene_image_prompt: Describe one visually dynamic film frame showing the SAME main character with consistent appearance, lighting style, and film tone across all six scenes. Each scene must differ in angle, framing, emotion, environment, and lighting mood (e.g., wide establishing, medium conflict, close emotional, overhead, side silhouette, backlit finale). Each image must feel cinematic and unique, not repetitive. \
-scene_video_prompt: Describe dynamic camera motion and editing for that same scene — include pans, zooms, tilts, dolly moves, tracking, and expressive camera cuts. Mention how motion builds emotion and connects to previous or next scene. The camera should feel alive, energetic, and cinematic. \
-Scene order and flow: 1 Establishment → 2 Inciting Action → 3 Rising Action → 4 Climax → 5 Falling Action → 6 Resolution. All scenes must connect logically in space, time, and tone. \
-Return ONLY valid JSON like: [ { 'scene_image_prompt': '...', 'scene_video_prompt': '...' }, ... six total ]. No markdown, commentary, or notes. Each scene must be concise, cinematic, emotionally vivid, visually distinct, and production-ready.";
-;
+scene_image_prompt: Describe one high-quality, visually stunning film frame featuring the SAME main character with perfect consistency in face, clothing, lighting, and tone across all six scenes. Each image must look like a professional cinematic still — ultra-detailed, photorealistic, color-graded, and emotionally powerful. Each scene must differ in camera angle, composition, emotion, environment, and lighting (e.g., wide establishing, medium tension, close-up emotional, overhead, silhouette, backlit finale). Every frame must feel cinematic, visually appealing, and distinct. \
+scene_video_prompt: Describe the dynamic camera motion and pacing for that same scene — include cinematic moves like pans, tilts, zooms, dolly-ins, crane shots, or handheld tracking. Mention how the camera transitions between shots or cuts, how movement builds emotion, and how it connects to the previous and next scenes. Make each video feel alive, expressive, and cinematic, with natural rhythm and story flow. \
+Scene order and flow: 1 Establishment → 2 Inciting Action → 3 Rising Action → 4 Climax → 5 Falling Action → 6 Resolution. All six scenes must connect logically in space, time, and visual tone. \
+Return ONLY valid JSON exactly in this format: [ { 'scene_image_prompt': '...', 'scene_video_prompt': '...' }, ... six total ]. No markdown, commentary, or notes. Every scene must be concise, emotionally rich, visually dynamic, and production-ready.";
 
     }
 

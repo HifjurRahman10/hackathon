@@ -26,7 +26,7 @@ export default function DashboardPage() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [stitchedVideoUrl, setStitchedVideoUrl] = useState<string | null>(null);
 
-  // ✅ Load Supabase user and chats
+  // ✅ Load user, chats, and video on mount
   useEffect(() => {
     async function init() {
       const supabase = getBrowserSupabase();
@@ -40,36 +40,41 @@ export default function DashboardPage() {
       }
 
       setUserId(user.id);
-      await loadChats(user.id);
+      await loadChatsAndVideo(user.id);
     }
 
     init();
   }, []);
 
-  // ✅ Load user's chats and latest video
-  async function loadChats(uid: string) {
-    const res = await fetch(`/api/chats?userId=${uid}`);
-    const data = await res.json();
-    const chatList: Chat[] = data.chats || [];
+  // ✅ Load chats and video
+  async function loadChatsAndVideo(uid: string) {
+    try {
+      const res = await fetch(`/api/chats?userId=${uid}`);
+      const data = await res.json();
+      const chatList: Chat[] = data.chats || [];
+      setChats(chatList);
 
-    setChats(chatList);
-    if (chatList.length > 0) {
-      setCurrentChatId(chatList[0].id);
-      await loadFinalVideo(chatList[0].id);
-    } else {
-      const newChatRes = await fetch("/api/chats", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: uid, title: "New Chat" }),
-      });
-      const { chat } = await newChatRes.json();
-      setChats([chat]);
-      setCurrentChatId(chat.id);
-      setStitchedVideoUrl(null);
+      if (chatList.length > 0) {
+        const activeChat = chatList[0];
+        setCurrentChatId(activeChat.id);
+        await loadFinalVideo(activeChat.id);
+      } else {
+        const newChatRes = await fetch("/api/chats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: uid, title: "New Chat" }),
+        });
+        const { chat } = await newChatRes.json();
+        setChats([chat]);
+        setCurrentChatId(chat.id);
+        setStitchedVideoUrl(null);
+      }
+    } catch (err) {
+      console.error("Failed to load chats/videos:", err);
     }
   }
 
-  // ✅ Load final video
+  // ✅ Load final stitched video
   async function loadFinalVideo(chatId: string) {
     const supabase = getBrowserSupabase();
     const { data, error } = await supabase
@@ -112,7 +117,7 @@ export default function DashboardPage() {
     }
   }
 
-  // ✅ Main generation flow (6 scenes)
+  // ✅ Generate cinematic scenes
   async function handleGenerate() {
     if (!userId || !currentChatId) return setError("Please sign in first.");
     setError(null);
@@ -161,7 +166,7 @@ export default function DashboardPage() {
       });
       const { data: scenes } = await sceneRes.json();
 
-      setProgress(75);
+      setProgress(70);
       const sceneResults = await Promise.all(
         scenes.map(async (s: SceneAPIData) => {
           const img = await fetch("/api/genImage", {
@@ -203,6 +208,7 @@ export default function DashboardPage() {
         }),
       });
       const { videoUrl } = await stitch.json();
+
       setStitchedVideoUrl(videoUrl);
       setProgress(100);
     } catch (e: any) {
@@ -213,23 +219,9 @@ export default function DashboardPage() {
   }
 
   // ✅ UI Render
-  if (stitchedVideoUrl) {
-    return (
-      <div className="flex items-center justify-center h-screen w-screen bg-black">
-        <video
-          src={stitchedVideoUrl}
-          controls
-          autoPlay
-          playsInline
-          className="max-h-[90vh] max-w-[90vw] object-contain rounded-2xl shadow-2xl border border-gray-800"
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-screen bg-gray-50 text-black">
-      {/* Sidebar */}
+      {/* Sidebar (always visible) */}
       <div className="w-64 bg-gray-900 text-white flex flex-col">
         <div className="p-4">
           <button
@@ -271,8 +263,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Main panel */}
-      <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
+      {/* Main area */}
+      <div className="flex-1 flex flex-col items-center justify-center p-8 relative overflow-hidden">
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-10">
             <div className="w-32 h-32 rounded-full border-4 border-gray-400 flex items-center justify-center text-2xl font-bold text-gray-800">
@@ -281,33 +273,46 @@ export default function DashboardPage() {
           </div>
         )}
 
-        <div className="w-full max-w-3xl">
-          <h1 className="text-2xl font-semibold mb-4 text-center">
-            Cinematic Scene Generator (6-Scene Mode)
-          </h1>
+        {!stitchedVideoUrl ? (
+          <div className="w-full max-w-3xl">
+            <h1 className="text-2xl font-semibold mb-4 text-center">
+              Cinematic Scene Generator (6-Scene)
+            </h1>
 
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Enter your cinematic story idea..."
-            className="w-full p-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-black min-h-[100px]"
-            disabled={loading}
-          />
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="Enter your cinematic story idea..."
+              className="w-full p-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-black min-h-[100px]"
+              disabled={loading}
+            />
 
-          <div className="flex justify-center mt-4">
-            <button
-              onClick={handleGenerate}
-              disabled={loading || !prompt.trim()}
-              className="px-6 py-2 bg-black text-white rounded-lg disabled:opacity-50 hover:bg-gray-800 transition"
-            >
-              {loading ? "Generating..." : "Generate 6-Scene Story"}
-            </button>
+            <div className="flex justify-center mt-4">
+              <button
+                onClick={handleGenerate}
+                disabled={loading || !prompt.trim()}
+                className="px-6 py-2 bg-black text-white rounded-lg disabled:opacity-50 hover:bg-gray-800 transition"
+              >
+                {loading ? "Generating..." : "Generate"}
+              </button>
+            </div>
+
+            {error && (
+              <p className="text-red-600 text-center mt-4 font-medium">{error}</p>
+            )}
           </div>
-
-          {error && (
-            <p className="text-red-600 text-center mt-4 font-medium">{error}</p>
-          )}
-        </div>
+        ) : (
+          // ✅ Show stitched video cleanly in dashboard area
+          <div className="w-full flex justify-center items-center">
+            <video
+              src={stitchedVideoUrl}
+              controls
+              autoPlay
+              playsInline
+              className="rounded-lg shadow-lg max-w-full max-h-[80vh] object-contain border border-gray-300"
+            />
+          </div>
+        )}
       </div>
     </div>
   );

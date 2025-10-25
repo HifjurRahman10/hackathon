@@ -17,161 +17,259 @@ interface SceneAPIData {
 }
 
 export default function DashboardPage() {
-  const [prompt, setPrompt] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  // ---------- core state ----------
   const [userId, setUserId] = useState<string | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 
-  // ✅ map of chatId → stitched video
-  const [videoByChat, setVideoByChat] = useState<Record<string, string | null>>({});
-  const [activeVideo, setActiveVideo] = useState<string | null>(null);
+  // prompt / pipeline state
+  const [prompt, setPrompt] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
-  // Used to cancel stale async fetches
-  const activeChatRef = useRef<string | null>(null);
+  // what we're showing right now in the video player
+  const [activeVideoUrl, setActiveVideoUrl] = useState<string | null>(null);
 
-  // -------------------------------------------------------------
-  // INITIAL LOAD
-  // -------------------------------------------------------------
+  // whether we're in the middle of fetching from DB (only happens if cache miss)
+  const [fetchingVideo, setFetchingVideo] = useState(false);
+
+  // per-chat cache:
+  //   undefined  => we have NEVER fetched this chat's final video
+  //   null       => fetched, no video in DB for that chat
+  //   "http..."  => fetched, we have a stitched video URL
+  const [videoCache, setVideoCache] = useState<Record<string, string | null | undefined>>({});
+
+  // sequence counter to kill race conditions
+  const fetchSeqRef = useRef(0);
+
+  // -------------------------------------------------
+  // 1. On mount -> get user -> load chats
+  // -------------------------------------------------
   useEffect(() => {
     (async () => {
       const supabase = getBrowserSupabase();
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) {
         setError("Please sign in first.");
         return;
       }
+
       setUserId(user.id);
-      await loadChats(user.id);
+
+      // load chats for that user
+      const res = await fetch(`/api/chats?userId=${user.id}`);
+      const json = await res.json();
+      const list: Chat[] = json.chats || [];
+
+      if (list.length === 0) {
+        // create first chat if none exist
+        const resNew = await fetch("/api/chats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: user.id, title: "New Chat" }),
+        });
+        const { chat } = await resNew.json();
+
+        setChats([chat]);
+        setCurrentChatId(chat.id);
+
+        // cache init: this new chat has definitely no video yet
+        setVideoCache((prev) => ({
+          ...prev,
+          [chat.id]: null,
+        }));
+
+        // activeVideoUrl will update via effect below
+      } else {
+        setChats(list);
+        setCurrentChatId(list[0].id);
+
+        // don't fetch yet; effect below will handle
+      }
     })();
   }, []);
 
-  // -------------------------------------------------------------
-  // LOAD CHATS + FIRST VIDEO
-  // -------------------------------------------------------------
-  async function loadChats(uid: string) {
-    const res = await fetch(`/api/chats?userId=${uid}`);
-    const data = await res.json();
-    const list: Chat[] = data.chats || [];
-    setChats(list);
+  // -------------------------------------------------
+  // 2. Whenever currentChatId changes:
+  //    - If we already have it cached: use cache (NO FETCH)
+  //    - Else fetch from Supabase ONCE and cache result.
+  // -------------------------------------------------
+  useEffect(() => {
+    async function loadVideoForChat(chatId: string) {
+      // if cached, just use it
+      const cached = videoCache[chatId];
+      if (cached !== undefined) {
+        setActiveVideoUrl(cached ?? null);
+        setFetchingVideo(false);
+        return;
+      }
 
-    if (list.length > 0) {
-      const first = list[0];
-      setCurrentChatId(first.id);
-      activeChatRef.current = first.id;
-      await loadVideoForChat(first.id);
-    } else {
-      const resNew = await fetch("/api/chats", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: uid, title: "New Chat" }),
-      });
-      const { chat } = await resNew.json();
-      setChats([chat]);
-      setCurrentChatId(chat.id);
-      activeChatRef.current = chat.id;
-      setVideoByChat({ [chat.id]: null });
+      // cache miss: fetch from DB
+      setFetchingVideo(true);
+
+      const seq = ++fetchSeqRef.current;
+      const supabase = getBrowserSupabase();
+
+      // we'll try to order by created_at first (recommended schema),
+      // if that fails because you haven't added created_at yet,
+      // we fallback to just .limit(1)
+      async function tryPrimary() {
+        return supabase
+          .from("final_video")
+          .select("video_url")
+          .eq("chat_id", chatId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+      }
+
+      async function tryFallback() {
+        return supabase
+          .from("final_video")
+          .select("video_url")
+          .eq("chat_id", chatId)
+          .limit(1)
+          .maybeSingle();
+      }
+
+      let data;
+      let error;
+      let result = await tryPrimary();
+      if (result.error && /created_at/i.test(result.error.message || "")) {
+        result = await tryFallback();
+      }
+      data = result.data;
+      error = result.error;
+
+      // ignore if user already switched chats or newer fetch started
+      if (seq !== fetchSeqRef.current) return;
+      if (chatId !== currentChatId) return;
+
+      const url = !error && data?.video_url ? data.video_url : null;
+
+      // update cache
+      setVideoCache((prev) => ({
+        ...prev,
+        [chatId]: url, // url or null
+      }));
+
+      // reflect in UI
+      setActiveVideoUrl(url);
+      setFetchingVideo(false);
     }
-  }
 
-  // -------------------------------------------------------------
-  // LOAD FINAL VIDEO FOR SPECIFIC CHAT
-  // -------------------------------------------------------------
-  async function loadVideoForChat(chatId: string) {
-    const supabase = getBrowserSupabase();
-    const { data, error } = await supabase
-      .from("final_video")
-      .select("video_url")
-      .eq("chat_id", chatId)
-      .maybeSingle();
+    if (!currentChatId) {
+      setActiveVideoUrl(null);
+      setFetchingVideo(false);
+      return;
+    }
 
-    if (activeChatRef.current !== chatId) return; // prevent race overwrite
+    loadVideoForChat(currentChatId);
+  }, [currentChatId, videoCache, currentChatId]); // `videoCache` in deps so we reuse cache without refetch
 
-    const url = !error && data?.video_url ? data.video_url : null;
-    setVideoByChat((prev) => ({ ...prev, [chatId]: url }));
-    setActiveVideo(url);
-  }
-
-  // -------------------------------------------------------------
-  // CHAT SWITCH
-  // -------------------------------------------------------------
-  async function handleChatClick(chatId: string) {
+  // -------------------------------------------------
+  // 3. Click a chat in sidebar
+  //    -> just set currentChatId. The useEffect above handles the rest.
+  // -------------------------------------------------
+  function handleChatClick(chatId: string) {
     if (chatId === currentChatId) return;
     setCurrentChatId(chatId);
-    activeChatRef.current = chatId;
     setPrompt("");
     setError(null);
     setProgress(0);
-
-    // Show cached instantly or fetch fresh
-    const cached = videoByChat[chatId];
-    if (cached !== undefined) {
-      setActiveVideo(cached);
-    } else {
-      setActiveVideo(null);
-      await loadVideoForChat(chatId);
-    }
+    // no manual fetch here — effect will load from cache or DB
   }
 
-  // -------------------------------------------------------------
-  // CREATE NEW CHAT
-  // -------------------------------------------------------------
+  // -------------------------------------------------
+  // 4. Create new chat
+  //    -> new chat goes in list, becomes active,
+  //       cache starts as null (no video yet),
+  //       UI switches immediately without refetch.
+  // -------------------------------------------------
   async function createNewChat() {
-    if (!userId) return;
+    if (!userId) {
+      setError("Please sign in first.");
+      return;
+    }
+
     const res = await fetch("/api/chats", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId, title: "New Chat" }),
     });
     const { chat } = await res.json();
-    setChats([chat, ...chats]);
-    setVideoByChat((prev) => ({ ...prev, [chat.id]: null }));
+
+    setChats((prev) => [chat, ...prev]);
     setCurrentChatId(chat.id);
-    activeChatRef.current = chat.id;
-    setActiveVideo(null);
     setPrompt("");
+    setError(null);
+    setProgress(0);
+
+    // pre-cache: new chat has no video yet
+    setVideoCache((prev) => ({
+      ...prev,
+      [chat.id]: null,
+    }));
   }
 
-  // -------------------------------------------------------------
-  // DELETE CHAT
-  // -------------------------------------------------------------
+  // -------------------------------------------------
+  // 5. Delete chat
+  //    -> remove it from list,
+  //       remove it from cache,
+  //       jump to next chat & rely on cache for it.
+  // -------------------------------------------------
   async function deleteChat(chatId: string) {
     await fetch(`/api/chats?chatId=${chatId}`, { method: "DELETE" });
-    const remaining = chats.filter((c) => c.id !== chatId);
-    setChats(remaining);
 
-    setVideoByChat((prev) => {
-      const updated = { ...prev };
-      delete updated[chatId];
-      return updated;
+    setChats((prev) => prev.filter((c) => c.id !== chatId));
+
+    setVideoCache((prev) => {
+      const next = { ...prev };
+      delete next[chatId];
+      return next;
     });
 
     if (currentChatId === chatId) {
-      const next = remaining[0];
-      if (next) {
-        handleChatClick(next.id);
+      // pick new active chat
+      const remaining = chats.filter((c) => c.id !== chatId);
+      if (remaining.length > 0) {
+        const nextChat = remaining[0];
+        setCurrentChatId(nextChat.id);
+        // effect will display cached video for nextChat or fetch if not cached
       } else {
         setCurrentChatId(null);
-        activeChatRef.current = null;
-        setActiveVideo(null);
+        setActiveVideoUrl(null);
+        setFetchingVideo(false);
       }
     }
   }
 
-  // -------------------------------------------------------------
-  // GENERATE PIPELINE
-  // -------------------------------------------------------------
+  // -------------------------------------------------
+  // 6. Generation pipeline
+  //    -> after we stitch final video, we IMMEDIATELY
+  //       update cache for this chat so we never refetch later.
+  // -------------------------------------------------
   async function handleGenerate() {
-    if (!userId || !currentChatId) return setError("Please sign in first.");
+    if (!userId || !currentChatId) {
+      setError("Please sign in first.");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setProgress(0);
-    setActiveVideo(null);
+
+    // hide old video while regenerating new
+    setActiveVideoUrl(null);
+    // also mark cache for this chat as "unfetched yet" so after stitch we overwrite
+    // (IMPORTANT: we DON'T nuke it to undefined, we just let our own code set new URL below)
 
     try {
-      // 1️⃣ Character
+      // 1️⃣ Generate character spec
       setProgress(10);
       const charRes = await fetch("/api/chat", {
         method: "POST",
@@ -185,7 +283,7 @@ export default function DashboardPage() {
       });
       const { data: charData } = await charRes.json();
 
-      // 2️⃣ Character Image
+      // 2️⃣ Generate character image
       setProgress(25);
       await fetch("/api/genImage", {
         method: "POST",
@@ -199,7 +297,7 @@ export default function DashboardPage() {
         }),
       });
 
-      // 3️⃣ Scenes
+      // 3️⃣ Generate scene prompts
       setProgress(45);
       const sceneRes = await fetch("/api/chat", {
         method: "POST",
@@ -214,11 +312,12 @@ export default function DashboardPage() {
       });
       const { data: scenes } = await sceneRes.json();
 
-      // 4️⃣ Images + Videos
+      // 4️⃣ For each scene: image -> video
       setProgress(70);
-      const sceneResults = await Promise.all(
+      const sceneVideoUrls = await Promise.all(
         scenes.map(async (s: SceneAPIData) => {
-          const img = await fetch("/api/genImage", {
+          // scene image using SAME character
+          const imgJson = await fetch("/api/genImage", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -230,61 +329,79 @@ export default function DashboardPage() {
             }),
           }).then((r) => r.json());
 
-          const vid = await fetch("/api/genVideo", {
+          // scene video from that frame
+          const vidJson = await fetch("/api/genVideo", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               prompt: s.scene_video_prompt,
-              imageUrl: img.imageUrl,
+              imageUrl: imgJson.imageUrl,
               sceneId: s.id,
               userId,
               metadata: { chatId: currentChatId },
             }),
           }).then((r) => r.json());
 
-          return vid.videoUrl;
+          return vidJson.videoUrl;
         })
       );
 
-      // 5️⃣ Stitch
+      // 5️⃣ Stitch final video
       setProgress(95);
-      const stitch = await fetch("/api/stitch", {
+      const stitchJson = await fetch("/api/stitch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          videoUrls: sceneResults,
+          videoUrls: sceneVideoUrls,
           chatId: currentChatId,
           userId,
         }),
-      });
-      const { videoUrl } = await stitch.json();
+      }).then((r) => r.json());
 
-      if (activeChatRef.current !== currentChatId) return; // safety
+      const stitchedUrl = stitchJson.videoUrl as string | undefined;
 
-      setVideoByChat((prev) => ({ ...prev, [currentChatId]: videoUrl }));
-      setActiveVideo(videoUrl);
+      // update UI immediately
+      if (stitchedUrl) {
+        setActiveVideoUrl(stitchedUrl);
+
+        // update cache so if we switch away and back,
+        // we don't refetch from Supabase
+        setVideoCache((prev) => ({
+          ...prev,
+          [currentChatId]: stitchedUrl,
+        }));
+      } else {
+        // no URL from stitch -> cache null
+        setActiveVideoUrl(null);
+        setVideoCache((prev) => ({
+          ...prev,
+          [currentChatId]: null,
+        }));
+      }
+
       setProgress(100);
-    } catch (err: any) {
-      console.error("Generation error:", err);
-      setError(err.message || "Failed to generate.");
+    } catch (e: any) {
+      console.error("Generation error:", e);
+      setError(e.message || "Failed to generate.");
     } finally {
       setLoading(false);
     }
   }
 
-  // -------------------------------------------------------------
-  // UI
-  // -------------------------------------------------------------
+  // -------------------------------------------------
+  // 7. UI
+  // -------------------------------------------------
   return (
     <div className="flex h-screen bg-gray-50 text-black">
       {/* Sidebar */}
-      <div className="w-64 bg-gray-900 text-white flex flex-col">
+      <aside className="w-64 bg-gray-900 text-white flex flex-col">
         <div className="p-4">
           <button
             onClick={createNewChat}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg transition"
           >
-            <Plus className="w-5 h-5" /> New Chat
+            <Plus className="w-5 h-5" />
+            <span className="text-sm font-medium">New Chat</span>
           </button>
         </div>
 
@@ -301,6 +418,7 @@ export default function DashboardPage() {
                 <MessageSquare className="w-4 h-4 flex-shrink-0" />
                 <span className="text-sm truncate">{chat.title}</span>
               </div>
+
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -313,10 +431,11 @@ export default function DashboardPage() {
             </div>
           ))}
         </div>
-      </div>
+      </aside>
 
       {/* Main */}
-      <div className="flex-1 flex flex-col items-center justify-center p-8 relative overflow-hidden">
+      <main className="flex-1 flex flex-col items-center justify-center p-8 relative overflow-hidden">
+        {/* full-screen overlay during generation */}
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-10">
             <div className="w-32 h-32 rounded-full border-4 border-gray-400 flex items-center justify-center text-2xl font-bold text-gray-800">
@@ -325,11 +444,22 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!activeVideo ? (
+        {!activeVideoUrl ? (
           <div className="w-full max-w-3xl">
             <h1 className="text-2xl font-semibold mb-4 text-center">
               Cinematic Scene Generator
             </h1>
+
+            {currentChatId && (
+              <p className="text-center text-[11px] text-gray-500 mb-2">
+                Chat {currentChatId.slice(0, 8)} •{" "}
+                {fetchingVideo
+                  ? "Loading video…"
+                  : videoCache[currentChatId] === null
+                  ? "No stitched video yet"
+                  : "Ready"}
+              </p>
+            )}
 
             <textarea
               value={prompt}
@@ -342,7 +472,7 @@ export default function DashboardPage() {
             <div className="flex justify-center mt-4">
               <button
                 onClick={handleGenerate}
-                disabled={loading || !prompt.trim()}
+                disabled={loading || !prompt.trim() || !currentChatId}
                 className="px-6 py-2 bg-black text-white rounded-lg disabled:opacity-50 hover:bg-gray-800 transition"
               >
                 {loading ? "Generating..." : "Generate"}
@@ -350,22 +480,29 @@ export default function DashboardPage() {
             </div>
 
             {error && (
-              <p className="text-red-600 text-center mt-4 font-medium">{error}</p>
+              <p className="text-red-600 text-center mt-4 font-medium">
+                {error}
+              </p>
             )}
           </div>
         ) : (
-          <div className="w-full flex justify-center items-center">
+          <div className="w-full flex flex-col items-center">
             <video
-              key={activeVideo}
-              src={activeVideo}
+              key={activeVideoUrl}
+              src={activeVideoUrl}
               controls
               autoPlay
               playsInline
               className="rounded-lg shadow-lg max-w-full max-h-[80vh] object-contain border border-gray-300"
             />
+            {currentChatId && (
+              <p className="text-[11px] text-gray-500 mt-2 select-text">
+                Chat {currentChatId.slice(0, 8)} • Stitched final video
+              </p>
+            )}
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

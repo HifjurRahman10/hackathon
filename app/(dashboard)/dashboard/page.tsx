@@ -276,7 +276,7 @@ export default function DashboardPage() {
         {!stitchedVideoUrl ? (
           <div className="w-full max-w-3xl">
             <h1 className="text-2xl font-semibold mb-4 text-center">
-              Cinematic Scene Generator (6-Scene)
+              Cinematic Scene Generator
             </h1>
 
             <textarea

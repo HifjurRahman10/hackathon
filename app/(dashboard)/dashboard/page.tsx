@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { getBrowserSupabase } from "@/lib/auth/supabase-browser";
 import { Plus, MessageSquare, Trash2 } from "lucide-react";
 
@@ -29,51 +29,6 @@ export default function DashboardPage() {
   const [activeVideoUrl, setActiveVideoUrl] = useState<string | null>(null);
   const [fetchingVideo, setFetchingVideo] = useState(false);
 
-  const [videoCache, setVideoCache] = useState<
-    Record<string, string | null | undefined>
-  >({});
-
-  const fetchSeqRef = useRef(0);
-
-  useEffect(() => {
-    (async () => {
-      const supabase = getBrowserSupabase();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        setError("Please sign in first.");
-        return;
-      }
-
-      setUserId(user.id);
-
-      const res = await fetch(`/api/chats?userId=${user.id}`);
-      const data = await res.json();
-      const list: Chat[] = data.chats || [];
-
-      if (list.length === 0) {
-        const newRes = await fetch("/api/chats", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: user.id, title: "New Chat" }),
-        });
-
-        const { chat } = await newRes.json();
-        setChats([chat]);
-        setCurrentChatId(chat.id);
-        setVideoCache((prev) => ({
-          ...prev,
-          [chat.id]: undefined,
-        }));
-      } else {
-        setChats(list);
-        setCurrentChatId(list[0].id);
-      }
-    })();
-  }, []);
-
   async function fetchFinalVideoUrlForChat(chatId: string) {
     const supabase = getBrowserSupabase();
 
@@ -94,66 +49,60 @@ export default function DashboardPage() {
     return (data[0].video_url as string | null) ?? null;
   }
 
-  useEffect(() => {
-    async function loadVideoForChat(chatId: string) {
-      const cached = videoCache[chatId];
+  async function loadVideoForChat(chatId: string) {
+    setFetchingVideo(true);
+    const url = await fetchFinalVideoUrlForChat(chatId);
+    setActiveVideoUrl(url);
+    setFetchingVideo(false);
+  }
 
-      if (cached !== undefined && cached !== null && cached !== "") {
-        setActiveVideoUrl(cached);
-        setFetchingVideo(false);
-        return;
-      }
+  async function initUserAndChats() {
+    const supabase = getBrowserSupabase();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-      if (cached === null) {
-        setActiveVideoUrl(null);
-        setFetchingVideo(false);
-        return;
-      }
-
-      setFetchingVideo(true);
-
-      const seq = ++fetchSeqRef.current;
-
-      const url = await fetchFinalVideoUrlForChat(chatId);
-
-      if (seq !== fetchSeqRef.current) {
-        return;
-      }
-      if (chatId !== currentChatId) {
-        return;
-      }
-
-      setVideoCache((prev) => ({
-        ...prev,
-        [chatId]: url,
-      }));
-
-      setActiveVideoUrl(url);
-      setFetchingVideo(false);
-    }
-
-    if (!currentChatId) {
-      setActiveVideoUrl(null);
-      setFetchingVideo(false);
+    if (!user) {
+      setError("Please sign in first.");
       return;
     }
 
-    loadVideoForChat(currentChatId);
-  }, [currentChatId, videoCache]);
+    setUserId(user.id);
 
-  function handleChatClick(chatId: string) {
+    const res = await fetch(`/api/chats?userId=${user.id}`);
+    const data = await res.json();
+    const list: Chat[] = data.chats || [];
+
+    if (list.length === 0) {
+      const newRes = await fetch("/api/chats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, title: "New Chat" }),
+      });
+
+      const { chat } = await newRes.json();
+      setChats([chat]);
+      setCurrentChatId(chat.id);
+      await loadVideoForChat(chat.id);
+    } else {
+      setChats(list);
+      setCurrentChatId(list[0].id);
+      await loadVideoForChat(list[0].id);
+    }
+  }
+
+  useEffect(() => {
+    initUserAndChats();
+  }, []);
+
+  async function handleChatClick(chatId: string) {
     if (chatId === currentChatId) return;
     setCurrentChatId(chatId);
     setPrompt("");
     setError(null);
     setProgress(0);
-
-    const cached = videoCache[chatId];
-    if (cached !== undefined) {
-      setActiveVideoUrl(cached ?? null);
-    } else {
-      setActiveVideoUrl(null);
-    }
+    setActiveVideoUrl(null);
+    await loadVideoForChat(chatId);
   }
 
   async function createNewChat() {
@@ -174,40 +123,31 @@ export default function DashboardPage() {
     setPrompt("");
     setError(null);
     setProgress(0);
-
-    setVideoCache((prev) => ({
-      ...prev,
-      [chat.id]: undefined,
-    }));
+    setActiveVideoUrl(null);
+    await loadVideoForChat(chat.id);
   }
 
   async function deleteChat(chatId: string) {
     await fetch(`/api/chats?chatId=${chatId}`, { method: "DELETE" });
 
-    setChats((prev) => prev.filter((c) => c.id !== chatId));
-
-    setVideoCache((prev) => {
-      const next = { ...prev };
-      delete next[chatId];
-      return next;
-    });
+    const remaining = chats.filter((c) => c.id !== chatId);
+    setChats(remaining);
 
     if (currentChatId === chatId) {
-      const remaining = chats.filter((c) => c.id !== chatId);
-      if (remaining.length > 0) {
-        const nextChat = remaining[0];
-        setCurrentChatId(nextChat.id);
-
-        const cached = videoCache[nextChat.id];
-        if (cached !== undefined) {
-          setActiveVideoUrl(cached ?? null);
-        } else {
-          setActiveVideoUrl(null);
-        }
+      const next = remaining[0];
+      if (next) {
+        setCurrentChatId(next.id);
+        setPrompt("");
+        setError(null);
+        setProgress(0);
+        setActiveVideoUrl(null);
+        await loadVideoForChat(next.id);
       } else {
         setCurrentChatId(null);
         setActiveVideoUrl(null);
-        setFetchingVideo(false);
+        setPrompt("");
+        setError(null);
+        setProgress(0);
       }
     }
   }
@@ -310,16 +250,8 @@ export default function DashboardPage() {
 
       if (stitchedUrl) {
         setActiveVideoUrl(stitchedUrl);
-        setVideoCache((prev) => ({
-          ...prev,
-          [currentChatId]: stitchedUrl,
-        }));
       } else {
         setActiveVideoUrl(null);
-        setVideoCache((prev) => ({
-          ...prev,
-          [currentChatId]: null,
-        }));
       }
 
       setProgress(100);
@@ -391,9 +323,9 @@ export default function DashboardPage() {
                 Chat {currentChatId.slice(0, 8)} •{" "}
                 {fetchingVideo
                   ? "Loading video…"
-                  : videoCache[currentChatId] === null
-                  ? "No stitched video yet"
-                  : "Ready"}
+                  : activeVideoUrl
+                  ? "Loaded"
+                  : "No stitched video yet"}
               </p>
             )}
 
@@ -407,9 +339,9 @@ export default function DashboardPage() {
 
             <div className="flex justify-center mt-4">
               <button
-              onClick={handleGenerate}
-              disabled={loading || !prompt.trim() || !currentChatId}
-              className="px-6 py-2 bg-black text-white rounded-lg disabled:opacity-50 hover:bg-gray-800 transition"
+                onClick={handleGenerate}
+                disabled={loading || !prompt.trim() || !currentChatId}
+                className="px-6 py-2 bg-black text-white rounded-lg disabled:opacity-50 hover:bg-gray-800 transition"
               >
                 {loading ? "Generating..." : "Generate"}
               </button>

@@ -74,19 +74,20 @@ export default function DashboardPage() {
     }
   }
 
-  // ✅ Load final stitched video
+  // ✅ Load final stitched video (fixed: no created_at column)
   async function loadFinalVideo(chatId: string) {
     const supabase = getBrowserSupabase();
     const { data, error } = await supabase
       .from("final_video")
       .select("video_url")
       .eq("chat_id", chatId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
+      .single(); // ✅ single video per chat
 
-    if (!error && data?.video_url) setStitchedVideoUrl(data.video_url);
-    else setStitchedVideoUrl(null);
+    if (!error && data?.video_url) {
+      setStitchedVideoUrl(data.video_url);
+    } else {
+      setStitchedVideoUrl(null);
+    }
   }
 
   // ✅ Create new chat
@@ -127,6 +128,7 @@ export default function DashboardPage() {
 
     try {
       setProgress(10);
+      // 1️⃣ Generate character data
       const charRes = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -140,6 +142,7 @@ export default function DashboardPage() {
       const { data: charData } = await charRes.json();
 
       setProgress(25);
+      // 2️⃣ Generate character image
       await fetch("/api/genImage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -153,6 +156,7 @@ export default function DashboardPage() {
       });
 
       setProgress(45);
+      // 3️⃣ Generate scenes
       const sceneRes = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -167,6 +171,7 @@ export default function DashboardPage() {
       const { data: scenes } = await sceneRes.json();
 
       setProgress(70);
+      // 4️⃣ Generate scene images + videos
       const sceneResults = await Promise.all(
         scenes.map(async (s: SceneAPIData) => {
           const img = await fetch("/api/genImage", {
@@ -198,6 +203,7 @@ export default function DashboardPage() {
       );
 
       setProgress(95);
+      // 5️⃣ Stitch final video
       const stitch = await fetch("/api/stitch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -221,7 +227,7 @@ export default function DashboardPage() {
   // ✅ UI Render
   return (
     <div className="flex h-screen bg-gray-50 text-black">
-      {/* Sidebar (always visible) */}
+      {/* Sidebar */}
       <div className="w-64 bg-gray-900 text-white flex flex-col">
         <div className="p-4">
           <button
@@ -263,7 +269,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Main area */}
+      {/* Main content */}
       <div className="flex-1 flex flex-col items-center justify-center p-8 relative overflow-hidden">
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-10">
@@ -302,7 +308,7 @@ export default function DashboardPage() {
             )}
           </div>
         ) : (
-          // ✅ Show stitched video cleanly in dashboard area
+          // ✅ Show stitched video cleanly after reload
           <div className="w-full flex justify-center items-center">
             <video
               src={stitchedVideoUrl}

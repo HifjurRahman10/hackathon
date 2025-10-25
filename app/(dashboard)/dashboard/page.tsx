@@ -65,6 +65,7 @@ export default function DashboardPage() {
       setChats(chatList);
       if (chatList.length > 0) {
         setCurrentChatId(chatList[0].id);
+        await loadFinalVideo(chatList[0].id);
       } else {
         const newChatRes = await fetch("/api/chats", {
           method: "POST",
@@ -74,9 +75,28 @@ export default function DashboardPage() {
         const { chat } = await newChatRes.json();
         setChats([chat]);
         setCurrentChatId(chat.id);
+        setStitchedVideoUrl(null);
       }
     } catch (err) {
       console.error("Failed to load chats:", err);
+    }
+  }
+
+  // ✅ Load final stitched video from Supabase
+  async function loadFinalVideo(chatId: string) {
+    const supabase = getBrowserSupabase();
+    const { data, error } = await supabase
+      .from("final_video")
+      .select("video_url")
+      .eq("chat_id", chatId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!error && data?.video_url) {
+      setStitchedVideoUrl(data.video_url);
+    } else {
+      setStitchedVideoUrl(null);
     }
   }
 
@@ -109,8 +129,8 @@ export default function DashboardPage() {
       if (currentChatId === chatId) {
         const nextChat = newChats[0];
         setCurrentChatId(nextChat?.id || null);
-        setScenes([]);
-        setStitchedVideoUrl(null);
+        if (nextChat) await loadFinalVideo(nextChat.id);
+        else setStitchedVideoUrl(null);
       }
     } catch (err) {
       console.error("Failed to delete chat:", err);
@@ -198,7 +218,6 @@ export default function DashboardPage() {
       // 4️⃣ Generate scene images + videos in parallel
       setProgress(55);
       const sceneTasks = scenesData.map(async (scene: SceneAPIData) => {
-        // Generate image
         const imgPromise = fetch("/api/genImage", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -215,7 +234,6 @@ export default function DashboardPage() {
           return imageUrl as string;
         });
 
-        // Generate video immediately after image
         const vidPromise = imgPromise.then(async (imageUrl) => {
           const videoRes = await fetch("/api/genVideo", {
             method: "POST",
@@ -267,6 +285,7 @@ export default function DashboardPage() {
     }
   }
 
+  // ✅ Render
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
@@ -288,7 +307,10 @@ export default function DashboardPage() {
               className={`group flex items-center justify-between p-3 rounded-lg cursor-pointer hover:bg-gray-800 transition ${
                 currentChatId === chat.id ? "bg-gray-800" : ""
               }`}
-              onClick={() => setCurrentChatId(chat.id)}
+              onClick={() => {
+                setCurrentChatId(chat.id);
+                loadFinalVideo(chat.id);
+              }}
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <MessageSquare className="w-4 h-4 flex-shrink-0" />
@@ -343,10 +365,11 @@ export default function DashboardPage() {
 
           {error && <p className="text-red-600 text-center mt-4 font-medium">{error}</p>}
 
-          {/* 🎬 Final stitched video */}
           {stitchedVideoUrl && !loading && (
             <div className="mt-8">
-              <h2 className="text-xl font-semibold mb-3 text-center">Final Cinematic Video</h2>
+              <h2 className="text-xl font-semibold mb-3 text-center">
+                Final Cinematic Video
+              </h2>
               <div className="flex justify-center">
                 <video
                   src={stitchedVideoUrl}
@@ -354,39 +377,6 @@ export default function DashboardPage() {
                   className="rounded-lg shadow-md max-w-full"
                 />
               </div>
-            </div>
-          )}
-
-          {/* Scene grid */}
-          {!loading && scenes.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-8">
-              {scenes.map((scene, i) => (
-                <div
-                  key={i}
-                  className="relative aspect-square rounded-xl overflow-hidden shadow-md bg-gray-100"
-                >
-                  {scene.videoUrl ? (
-                    <video
-                      src={scene.videoUrl}
-                      controls
-                      loop
-                      muted
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <Image
-                      src={scene.imageUrl}
-                      alt={`Scene ${i + 1}`}
-                      fill
-                      className="object-cover"
-                    />
-                  )}
-                  <span className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded flex items-center gap-1">
-                    <Video className="w-3 h-3" />
-                    Scene {i + 1}
-                  </span>
-                </div>
-              ))}
             </div>
           )}
         </div>

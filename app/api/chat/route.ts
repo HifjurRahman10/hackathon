@@ -117,94 +117,13 @@ EXAMPLE:
   "image_prompt": "A striking 34-year-old Asian man with sharp, defined facial features and an intense, calculating gaze. He has short black hair with a modern textured crop, styled with a slight forward sweep. His eyes are dark brown, almond-shaped, and piercing, framed by strong eyebrows. A thin scar runs along his left cheekbone, barely visible but adding character. His skin is a warm olive tone with subtle five o'clock shadow along his jawline. He wears a tailored charcoal gray tactical jacket with high collar, made of water-resistant technical fabric with subtle reflective piping along the seams. Underneath is a fitted black merino wool sweater. A sleek silver watch with a dark face is visible on his left wrist. Around his neck hangs a small pendant - a silver compass on a leather cord. He stands in a confident, slightly guarded stance with arms crossed, head tilted slightly, expression serious and focused with the hint of a knowing smirk. Professional portrait photography, shot at eye level with 85mm lens, f/2.8 aperture creating shallow depth of field. Cinematic lighting with soft key light from the left creating depth and dimension. The background is intentionally simple - a dark blurred gradient with hints of cool blue tones, keeping all focus on the character. Highly detailed, 8k resolution, photorealistic quality, sharp focus on facial features, cinematic color grading with slightly desaturated tones and enhanced contrast."
 }`;
     } else if (mode === "scenes") {
-      systemPrompt =`
-You are a master cinematic scene designer. Your task is to generate 3 connected scenes that tell a cohesive visual story. Each scene must include:
+     systemPrompt = "You are a MASTER CINEMATIC SCENE DESIGNER. Generate six connected scenes forming a continuous cinematic story. Output MUST be valid JSON: an array of six objects, each with 'scene_image_prompt' and 'scene_video_prompt'. No text outside JSON. \
+scene_image_prompt: Describe one visually dynamic film frame showing the SAME main character with consistent appearance, lighting style, and film tone across all six scenes. Each scene must differ in angle, framing, emotion, environment, and lighting mood (e.g., wide establishing, medium conflict, close emotional, overhead, side silhouette, backlit finale). Each image must feel cinematic and unique, not repetitive. \
+scene_video_prompt: Describe dynamic camera motion and editing for that same scene — include pans, zooms, tilts, dolly moves, tracking, and expressive camera cuts. Mention how motion builds emotion and connects to previous or next scene. The camera should feel alive, energetic, and cinematic. \
+Scene order and flow: 1 Establishment → 2 Inciting Action → 3 Rising Action → 4 Climax → 5 Falling Action → 6 Resolution. All scenes must connect logically in space, time, and tone. \
+Return ONLY valid JSON like: [ { 'scene_image_prompt': '...', 'scene_video_prompt': '...' }, ... six total ]. No markdown, commentary, or notes. Each scene must be concise, cinematic, emotionally vivid, visually distinct, and production-ready.";
+;
 
-1. scene_image_prompt – a detailed description of the scene for image generation.
-2. scene_video_prompt – a detailed description of the scene for video generation, where the video motion progresses the story logically from the previous scene.
-
-═══════════════════════════════════════════════════════════════
-CRITICAL CONTINUITY RULES:
-═══════════════════════════════════════════════════════════════
-
-1. Character consistency: Same face, hair, hairstyle, clothing, accessories, and colors in all scenes.
-2. Visual style consistency: Same cinematography, lighting, color grading, film genre, and environmental style across all scenes.
-3. Location continuity: Scenes must occur in connected spaces (e.g., same building, different floors; same street, different spots).
-4. Time progression: Either consistent time or a natural progression (e.g., dusk → night → late night).
-5. Atmospheric consistency: Weather, fog, rain, or environmental effects must remain consistent or evolve logically.
-6. Narrative continuity: Scene 1 → Scene 2 → Scene 3 must flow logically as story beats (establishment → rising action → climax/resolution).
-
-═══════════════════════════════════════════════════════════════
-SCENE STRUCTURE:
-═══════════════════════════════════════════════════════════════
-
-Scene 1 – ESTABLISHMENT:
-- Introduces character and environment.
-- Calm, contemplative moment.
-- Shows location and sets tone/style.
-- Scene video: Character motion is subtle, showing arrival, observation, or preparation.
-
-Scene 2 – RISING ACTION:
-- Character engaged with challenge.
-- More dynamic, tension increases.
-- Scene video: Character movement is faster, purposeful, or reactive; camera movement builds intensity from Scene 1.
-
-Scene 3 – CLIMAX/RESOLUTION:
-- Most dramatic or emotional moment.
-- Concludes mini-story.
-- Scene video: Character motion reaches peak intensity or resolution; camera motion emphasizes payoff and finality.
-
-═══════════════════════════════════════════════════════════════
-PROMPT FORMATS:
-═══════════════════════════════════════════════════════════════
-
-Scene Image Prompt Template:
-"The main character from the story appears in this scene, maintaining exact visual consistency across all three scenes of this story sequence. [Scene-specific narrative description, 250-350 words, including character, environment, lighting, cinematography, and continuity]"
-
-Scene Video Prompt Template:
-"The main character maintains complete visual consistency throughout all motion. [Scene-specific motion description, 100-150 words, showing how the character moves and interacts with the environment, camera moves, and pacing to progress the story logically from the previous scene]"
-
-Scene 2 transition line:
-"Shortly after [brief reference to Scene 1], the character now [new position/action]..."
-
-Scene 3 transition line:
-"Following the events of the previous scenes, the character [final position/action]..."
-
-═══════════════════════════════════════════════════════════════
-FINAL CHECKLIST FOR EACH SCENE:
-═══════════════════════════════════════════════════════════════
-
-1. Could these 3 scenes be screenshots from the same movie? ✅
-2. Is the character wearing the exact same outfit in all 3? ✅
-3. Do the locations make spatial sense together? ✅
-4. Does time progress naturally or stay consistent? ✅
-5. Is the visual style unified across all 3? ✅
-6. Does the video motion in each scene progress the story logically from the previous scene? ✅
-
-═══════════════════════════════════════════════════════════════
-OUTPUT FORMAT:
-
-[
-  {
-    "scene_image_prompt": "[Scene 1 image prompt]",
-    "scene_video_prompt": "[Scene 1 video prompt]"
-  },
-  {
-    "scene_image_prompt": "[Scene 2 image prompt]",
-    "scene_video_prompt": "[Scene 2 video prompt]"
-  },
-  {
-    "scene_image_prompt": "[Scene 3 image prompt]",
-    "scene_video_prompt": "[Scene 3 video prompt]"
-  }
-]
-
-═══════════════════════════════════════════════════════════════
-
-Use this prompt to generate cinematic scene descriptions and video motions that maintain full character, visual, location, and narrative continuity across all 3 scenes, ensuring a logical story progression.
-
-
-Return only valid JSON following the required format. Strictly follow the json structure`;
     }
 
     async function getParsedResponse(): Promise<any> {

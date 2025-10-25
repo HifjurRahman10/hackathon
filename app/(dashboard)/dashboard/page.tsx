@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import { getBrowserSupabase } from "@/lib/auth/supabase-browser";
-import { Plus, MessageSquare, Trash2, Video } from "lucide-react";
+import { Plus, MessageSquare, Trash2 } from "lucide-react";
 
 interface Chat {
   id: string;
@@ -137,14 +137,13 @@ export default function DashboardPage() {
     }
   }
 
-  // ✅ Main generation pipeline — parallelized + one-prompt rule
+  // ✅ Main generation pipeline for 6 scenes
   async function handleGenerate() {
     if (!userId || !currentChatId) {
       setError("Please create a chat first");
       return;
     }
 
-    // 🚫 Enforce one prompt per chat
     const supabase = getBrowserSupabase();
     const { data: existingScenes } = await supabase
       .from("scenes")
@@ -164,7 +163,7 @@ export default function DashboardPage() {
     setLoading(true);
 
     try {
-      // 1️⃣ Generate character
+      // 1️⃣ Character generation
       setProgress(10);
       const charRes = await fetch("/api/chat", {
         method: "POST",
@@ -176,10 +175,8 @@ export default function DashboardPage() {
           chatId: currentChatId,
         }),
       });
-
       if (!charRes.ok) throw new Error("Character generation failed");
       const { data: charData } = await charRes.json();
-
       if (!charData?.image_prompt) throw new Error("Invalid character data");
 
       // 2️⃣ Character image
@@ -198,7 +195,7 @@ export default function DashboardPage() {
       if (!imgRes.ok) throw new Error("Character image generation failed");
       const { imageUrl: characterImageUrl } = await imgRes.json();
 
-      // 3️⃣ Generate scenes
+      // 3️⃣ Scene generation (expecting 6 scenes)
       setProgress(40);
       const sceneRes = await fetch("/api/chat", {
         method: "POST",
@@ -208,14 +205,15 @@ export default function DashboardPage() {
           mode: "scenes",
           userId,
           chatId: currentChatId,
+          sceneCount: 6, // <-- explicitly request 6 scenes
         }),
       });
       if (!sceneRes.ok) throw new Error("Scene generation failed");
       const { data: scenesData } = await sceneRes.json();
-      if (!Array.isArray(scenesData) || scenesData.length < 1)
-        throw new Error("Scene data malformed");
+      if (!Array.isArray(scenesData) || scenesData.length < 6)
+        throw new Error("Scene data malformed or incomplete");
 
-      // 4️⃣ Generate scene images + videos in parallel
+      // 4️⃣ Generate all 6 scene images & videos in parallel
       setProgress(55);
       const sceneTasks = scenesData.map(async (scene: SceneAPIData) => {
         const imgPromise = fetch("/api/genImage", {
@@ -256,14 +254,13 @@ export default function DashboardPage() {
 
       const results = await Promise.all(sceneTasks);
       setProgress(85);
-
       const mappedScenes = results.map((r) => ({
         imageUrl: r.imageUrl,
         videoUrl: r.videoUrl,
       }));
       setScenes(mappedScenes);
 
-      // 5️⃣ Stitch final video
+      // 5️⃣ Stitch 6 videos together
       setProgress(95);
       const videoUrls = mappedScenes.map((s) => s.videoUrl!).filter(Boolean);
       const stitchRes = await fetch("/api/stitch", {
@@ -342,7 +339,7 @@ export default function DashboardPage() {
 
         <div className="w-full max-w-3xl">
           <h1 className="text-2xl font-semibold mb-4 text-center">
-            Cinematic Scene Generator
+            Cinematic Scene Generator (6-Scene Mode)
           </h1>
 
           <textarea
@@ -359,7 +356,7 @@ export default function DashboardPage() {
               disabled={loading || !prompt.trim() || !currentChatId}
               className="px-6 py-2 bg-black text-white rounded-lg disabled:opacity-50 hover:bg-gray-800 transition"
             >
-              {loading ? "Generating..." : "Generate"}
+              {loading ? "Generating..." : "Generate 6-Scene Story"}
             </button>
           </div>
 
@@ -368,7 +365,7 @@ export default function DashboardPage() {
           {stitchedVideoUrl && !loading && (
             <div className="mt-8">
               <h2 className="text-xl font-semibold mb-3 text-center">
-                Final Cinematic Video
+                Final 6-Scene Cinematic Video
               </h2>
               <div className="flex justify-center">
                 <video

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import { getBrowserSupabase } from "@/lib/auth/supabase-browser";
 import { Plus, MessageSquare, Trash2 } from "lucide-react";
 
@@ -9,13 +8,6 @@ interface Chat {
   id: string;
   title: string;
   created_at: string;
-}
-
-interface SceneData {
-  imageUrl: string;
-  videoUrl?: string;
-  sceneId?: string;
-  videoPrompt?: string;
 }
 
 interface SceneAPIData {
@@ -28,7 +20,6 @@ export default function DashboardPage() {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [scenes, setScenes] = useState<SceneData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
@@ -37,7 +28,7 @@ export default function DashboardPage() {
 
   // ✅ Load Supabase user and chats
   useEffect(() => {
-    async function fetchUser() {
+    async function init() {
       const supabase = getBrowserSupabase();
       const {
         data: { user },
@@ -52,37 +43,33 @@ export default function DashboardPage() {
       await loadChats(user.id);
     }
 
-    fetchUser();
+    init();
   }, []);
 
-  // ✅ Load user's chats
+  // ✅ Load user's chats and latest video
   async function loadChats(uid: string) {
-    try {
-      const res = await fetch(`/api/chats?userId=${uid}`);
-      const data = await res.json();
-      const chatList: Chat[] = data.chats || [];
+    const res = await fetch(`/api/chats?userId=${uid}`);
+    const data = await res.json();
+    const chatList: Chat[] = data.chats || [];
 
-      setChats(chatList);
-      if (chatList.length > 0) {
-        setCurrentChatId(chatList[0].id);
-        await loadFinalVideo(chatList[0].id);
-      } else {
-        const newChatRes = await fetch("/api/chats", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: uid, title: "New Chat" }),
-        });
-        const { chat } = await newChatRes.json();
-        setChats([chat]);
-        setCurrentChatId(chat.id);
-        setStitchedVideoUrl(null);
-      }
-    } catch (err) {
-      console.error("Failed to load chats:", err);
+    setChats(chatList);
+    if (chatList.length > 0) {
+      setCurrentChatId(chatList[0].id);
+      await loadFinalVideo(chatList[0].id);
+    } else {
+      const newChatRes = await fetch("/api/chats", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: uid, title: "New Chat" }),
+      });
+      const { chat } = await newChatRes.json();
+      setChats([chat]);
+      setCurrentChatId(chat.id);
+      setStitchedVideoUrl(null);
     }
   }
 
-  // ✅ Load final stitched video from Supabase
+  // ✅ Load final video
   async function loadFinalVideo(chatId: string) {
     const supabase = getBrowserSupabase();
     const { data, error } = await supabase
@@ -93,77 +80,47 @@ export default function DashboardPage() {
       .limit(1)
       .single();
 
-    if (!error && data?.video_url) {
-      setStitchedVideoUrl(data.video_url);
-    } else {
-      setStitchedVideoUrl(null);
-    }
+    if (!error && data?.video_url) setStitchedVideoUrl(data.video_url);
+    else setStitchedVideoUrl(null);
   }
 
   // ✅ Create new chat
   async function createNewChat() {
     if (!userId) return;
-    try {
-      const res = await fetch("/api/chats", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, title: "New Chat" }),
-      });
-      const { chat } = await res.json();
-      setChats([chat, ...chats]);
-      setCurrentChatId(chat.id);
-      setScenes([]);
-      setStitchedVideoUrl(null);
-      setPrompt("");
-    } catch (err) {
-      console.error("Failed to create chat:", err);
-    }
+    const res = await fetch("/api/chats", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, title: "New Chat" }),
+    });
+    const { chat } = await res.json();
+    setChats([chat, ...chats]);
+    setCurrentChatId(chat.id);
+    setStitchedVideoUrl(null);
+    setPrompt("");
   }
 
   // ✅ Delete chat
   async function deleteChat(chatId: string) {
-    try {
-      await fetch(`/api/chats?chatId=${chatId}`, { method: "DELETE" });
-      const newChats = chats.filter((c) => c.id !== chatId);
-      setChats(newChats);
-      if (currentChatId === chatId) {
-        const nextChat = newChats[0];
-        setCurrentChatId(nextChat?.id || null);
-        if (nextChat) await loadFinalVideo(nextChat.id);
-        else setStitchedVideoUrl(null);
-      }
-    } catch (err) {
-      console.error("Failed to delete chat:", err);
+    await fetch(`/api/chats?chatId=${chatId}`, { method: "DELETE" });
+    const updated = chats.filter((c) => c.id !== chatId);
+    setChats(updated);
+    if (currentChatId === chatId) {
+      const next = updated[0];
+      setCurrentChatId(next?.id || null);
+      if (next) await loadFinalVideo(next.id);
+      else setStitchedVideoUrl(null);
     }
   }
 
-  // ✅ Main generation pipeline for 6 scenes
+  // ✅ Main generation flow (6 scenes)
   async function handleGenerate() {
-    if (!userId || !currentChatId) {
-      setError("Please create a chat first");
-      return;
-    }
-
-    const supabase = getBrowserSupabase();
-    const { data: existingScenes } = await supabase
-      .from("scenes")
-      .select("id")
-      .eq("chat_id", currentChatId)
-      .limit(1);
-
-    if (existingScenes && existingScenes.length > 0) {
-      setError("Only one prompt allowed per chat. Create a new chat to generate more.");
-      return;
-    }
-
+    if (!userId || !currentChatId) return setError("Please sign in first.");
     setError(null);
-    setScenes([]);
-    setStitchedVideoUrl(null);
-    setProgress(0);
     setLoading(true);
+    setProgress(0);
+    setStitchedVideoUrl(null);
 
     try {
-      // 1️⃣ Character generation
       setProgress(10);
       const charRes = await fetch("/api/chat", {
         method: "POST",
@@ -175,13 +132,10 @@ export default function DashboardPage() {
           chatId: currentChatId,
         }),
       });
-      if (!charRes.ok) throw new Error("Character generation failed");
       const { data: charData } = await charRes.json();
-      if (!charData?.image_prompt) throw new Error("Invalid character data");
 
-      // 2️⃣ Character image
       setProgress(25);
-      const imgRes = await fetch("/api/genImage", {
+      await fetch("/api/genImage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -192,99 +146,89 @@ export default function DashboardPage() {
           metadata: { chatId: currentChatId },
         }),
       });
-      if (!imgRes.ok) throw new Error("Character image generation failed");
-      const { imageUrl: characterImageUrl } = await imgRes.json();
 
-      // 3️⃣ Scene generation (expecting 6 scenes)
-      setProgress(40);
+      setProgress(45);
       const sceneRes = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: `${prompt}\nCharacter: ${charData.name}\nDescription: ${charData.image_prompt}`,
+          prompt: `${prompt}\nCharacter: ${charData.name}`,
           mode: "scenes",
           userId,
           chatId: currentChatId,
-          sceneCount: 6, // <-- explicitly request 6 scenes
+          sceneCount: 6,
         }),
       });
-      if (!sceneRes.ok) throw new Error("Scene generation failed");
-      const { data: scenesData } = await sceneRes.json();
-      if (!Array.isArray(scenesData) || scenesData.length < 6)
-        throw new Error("Scene data malformed or incomplete");
+      const { data: scenes } = await sceneRes.json();
 
-      // 4️⃣ Generate all 6 scene images & videos in parallel
-      setProgress(55);
-      const sceneTasks = scenesData.map(async (scene: SceneAPIData) => {
-        const imgPromise = fetch("/api/genImage", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            prompt: scene.scene_image_prompt,
-            type: "scene",
-            recordId: scene.id,
-            userId,
-            metadata: { chatId: currentChatId },
-          }),
-        }).then(async (r) => {
-          if (!r.ok) throw new Error("Scene image failed");
-          const { imageUrl } = await r.json();
-          return imageUrl as string;
-        });
-
-        const vidPromise = imgPromise.then(async (imageUrl) => {
-          const videoRes = await fetch("/api/genVideo", {
+      setProgress(75);
+      const sceneResults = await Promise.all(
+        scenes.map(async (s: SceneAPIData) => {
+          const img = await fetch("/api/genImage", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              prompt: scene.scene_video_prompt,
-              imageUrl,
-              sceneId: scene.id,
+              prompt: s.scene_image_prompt,
+              type: "scene",
+              recordId: s.id,
               userId,
               metadata: { chatId: currentChatId },
             }),
-          });
-          if (!videoRes.ok) throw new Error("Video generation failed");
-          const { videoUrl } = await videoRes.json();
-          return { imageUrl, videoUrl };
-        });
+          }).then((r) => r.json());
 
-        return vidPromise;
-      });
+          const vid = await fetch("/api/genVideo", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              prompt: s.scene_video_prompt,
+              imageUrl: img.imageUrl,
+              sceneId: s.id,
+              userId,
+              metadata: { chatId: currentChatId },
+            }),
+          }).then((r) => r.json());
 
-      const results = await Promise.all(sceneTasks);
-      setProgress(85);
-      const mappedScenes = results.map((r) => ({
-        imageUrl: r.imageUrl,
-        videoUrl: r.videoUrl,
-      }));
-      setScenes(mappedScenes);
+          return vid.videoUrl;
+        })
+      );
 
-      // 5️⃣ Stitch 6 videos together
       setProgress(95);
-      const videoUrls = mappedScenes.map((s) => s.videoUrl!).filter(Boolean);
-      const stitchRes = await fetch("/api/stitch", {
+      const stitch = await fetch("/api/stitch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ videoUrls, chatId: currentChatId, userId }),
+        body: JSON.stringify({
+          videoUrls: sceneResults,
+          chatId: currentChatId,
+          userId,
+        }),
       });
-
-      if (!stitchRes.ok) throw new Error("Video stitching failed");
-      const { videoUrl } = await stitchRes.json();
-
-      setProgress(100);
+      const { videoUrl } = await stitch.json();
       setStitchedVideoUrl(videoUrl);
-    } catch (err: any) {
-      console.error("Error:", err);
-      setError(err.message || "Something went wrong");
+      setProgress(100);
+    } catch (e: any) {
+      setError(e.message);
     } finally {
       setLoading(false);
     }
   }
 
-  // ✅ Render
+  // ✅ UI Render
+  if (stitchedVideoUrl) {
+    return (
+      <div className="flex items-center justify-center h-screen w-screen bg-black">
+        <video
+          src={stitchedVideoUrl}
+          controls
+          autoPlay
+          playsInline
+          className="max-h-[90vh] max-w-[90vw] object-contain rounded-2xl shadow-2xl border border-gray-800"
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-gray-50 text-black">
       {/* Sidebar */}
       <div className="w-64 bg-gray-900 text-white flex flex-col">
         <div className="p-4">
@@ -327,11 +271,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Main content */}
+      {/* Main panel */}
       <div className="flex-1 flex flex-col items-center justify-center p-8 relative">
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm z-10">
-            <div className="w-32 h-32 rounded-full border-4 border-gray-300 flex items-center justify-center text-2xl font-bold text-gray-800">
+            <div className="w-32 h-32 rounded-full border-4 border-gray-400 flex items-center justify-center text-2xl font-bold text-gray-800">
               {progress}%
             </div>
           </div>
@@ -345,7 +289,7 @@ export default function DashboardPage() {
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Enter your story idea..."
+            placeholder="Enter your cinematic story idea..."
             className="w-full p-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-black min-h-[100px]"
             disabled={loading}
           />
@@ -353,28 +297,15 @@ export default function DashboardPage() {
           <div className="flex justify-center mt-4">
             <button
               onClick={handleGenerate}
-              disabled={loading || !prompt.trim() || !currentChatId}
+              disabled={loading || !prompt.trim()}
               className="px-6 py-2 bg-black text-white rounded-lg disabled:opacity-50 hover:bg-gray-800 transition"
             >
               {loading ? "Generating..." : "Generate 6-Scene Story"}
             </button>
           </div>
 
-          {error && <p className="text-red-600 text-center mt-4 font-medium">{error}</p>}
-
-          {stitchedVideoUrl && !loading && (
-            <div className="mt-8">
-              <h2 className="text-xl font-semibold mb-3 text-center">
-                Final 6-Scene Cinematic Video
-              </h2>
-              <div className="flex justify-center">
-                <video
-                  src={stitchedVideoUrl}
-                  controls
-                  className="rounded-lg shadow-md max-w-full"
-                />
-              </div>
-            </div>
+          {error && (
+            <p className="text-red-600 text-center mt-4 font-medium">{error}</p>
           )}
         </div>
       </div>

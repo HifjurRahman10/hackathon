@@ -202,12 +202,14 @@ OUTPUT FORMAT:
 ═══════════════════════════════════════════════════════════════
 
 Use this prompt to generate cinematic scene descriptions and video motions that maintain full character, visual, location, and narrative continuity across all 3 scenes, ensuring a logical story progression.
-`;
+
+
+Return only valid JSON following the required format. Strictly follow the json structure`;
     }
 
     async function getParsedResponse(): Promise<any> {
       const response = await openai.responses.create({
-        model: "gpt-5-nano",
+        model: "gpt-5",
         input: [
           { role: "system", content: systemPrompt },
           { role: "user", content: prompt },
@@ -221,7 +223,7 @@ Use this prompt to generate cinematic scene descriptions and video motions that 
         return JSON.parse(text);
       } catch {
         const retryResponse = await openai.responses.create({
-          model: "gpt-5-nano",
+          model: "gpt-5",
           input: [
             { role: "system", content: systemPrompt },
             {

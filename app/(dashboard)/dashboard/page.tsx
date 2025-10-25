@@ -26,7 +26,10 @@ export default function DashboardPage() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [stitchedVideoUrl, setStitchedVideoUrl] = useState<string | null>(null);
 
-  // ✅ Load user, chats, and video on mount
+  // NEW: store all chat videos in memory
+  const [videoUrlsByChatId, setVideoUrlsByChatId] = useState<Record<string, string | null>>({});
+
+  // ✅ Load user + chats on mount
   useEffect(() => {
     async function init() {
       const supabase = getBrowserSupabase();
@@ -40,14 +43,14 @@ export default function DashboardPage() {
       }
 
       setUserId(user.id);
-      await loadChatsAndVideo(user.id);
+      await loadChats(user.id);
     }
 
     init();
   }, []);
 
-  // ✅ Load chats and video
-  async function loadChatsAndVideo(uid: string) {
+  // ✅ Load user's chats
+  async function loadChats(uid: string) {
     try {
       const res = await fetch(`/api/chats?userId=${uid}`);
       const data = await res.json();
@@ -55,10 +58,11 @@ export default function DashboardPage() {
       setChats(chatList);
 
       if (chatList.length > 0) {
-        const activeChat = chatList[0];
-        setCurrentChatId(activeChat.id);
-        await loadFinalVideo(activeChat.id);
+        const firstChat = chatList[0];
+        setCurrentChatId(firstChat.id);
+        await loadFinalVideo(firstChat.id);
       } else {
+        // create first chat if none
         const newChatRes = await fetch("/api/chats", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -67,26 +71,42 @@ export default function DashboardPage() {
         const { chat } = await newChatRes.json();
         setChats([chat]);
         setCurrentChatId(chat.id);
-        setStitchedVideoUrl(null);
       }
     } catch (err) {
-      console.error("Failed to load chats/videos:", err);
+      console.error("Failed to load chats:", err);
     }
   }
 
-  // ✅ Load final stitched video (fixed: no created_at column)
+  // ✅ Load final stitched video per chat
   async function loadFinalVideo(chatId: string) {
     const supabase = getBrowserSupabase();
     const { data, error } = await supabase
       .from("final_video")
       .select("video_url")
       .eq("chat_id", chatId)
-      .single(); // ✅ single video per chat
+      .single();
 
     if (!error && data?.video_url) {
-      setStitchedVideoUrl(data.video_url);
+      setVideoUrlsByChatId((prev) => ({ ...prev, [chatId]: data.video_url }));
+      if (currentChatId === chatId) setStitchedVideoUrl(data.video_url);
+    } else {
+      setVideoUrlsByChatId((prev) => ({ ...prev, [chatId]: null }));
+      if (currentChatId === chatId) setStitchedVideoUrl(null);
+    }
+  }
+
+  // ✅ Switch chats without losing stored videos
+  async function handleChatClick(chatId: string) {
+    setCurrentChatId(chatId);
+    setPrompt("");
+    setError(null);
+    setProgress(0);
+    const existingUrl = videoUrlsByChatId[chatId];
+    if (existingUrl) {
+      setStitchedVideoUrl(existingUrl);
     } else {
       setStitchedVideoUrl(null);
+      await loadFinalVideo(chatId);
     }
   }
 
@@ -101,24 +121,33 @@ export default function DashboardPage() {
     const { chat } = await res.json();
     setChats([chat, ...chats]);
     setCurrentChatId(chat.id);
-    setStitchedVideoUrl(null);
     setPrompt("");
+    setError(null);
+    setProgress(0);
+    setStitchedVideoUrl(null);
   }
 
-  // ✅ Delete chat
+  // ✅ Delete chat safely
   async function deleteChat(chatId: string) {
     await fetch(`/api/chats?chatId=${chatId}`, { method: "DELETE" });
     const updated = chats.filter((c) => c.id !== chatId);
     setChats(updated);
+    const { [chatId]: _, ...rest } = videoUrlsByChatId;
+    setVideoUrlsByChatId(rest);
+
     if (currentChatId === chatId) {
       const next = updated[0];
-      setCurrentChatId(next?.id || null);
-      if (next) await loadFinalVideo(next.id);
-      else setStitchedVideoUrl(null);
+      if (next) {
+        setCurrentChatId(next.id);
+        handleChatClick(next.id);
+      } else {
+        setCurrentChatId(null);
+        setStitchedVideoUrl(null);
+      }
     }
   }
 
-  // ✅ Generate cinematic scenes
+  // ✅ Generation pipeline
   async function handleGenerate() {
     if (!userId || !currentChatId) return setError("Please sign in first.");
     setError(null);
@@ -128,7 +157,6 @@ export default function DashboardPage() {
 
     try {
       setProgress(10);
-      // 1️⃣ Generate character data
       const charRes = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -142,7 +170,6 @@ export default function DashboardPage() {
       const { data: charData } = await charRes.json();
 
       setProgress(25);
-      // 2️⃣ Generate character image
       await fetch("/api/genImage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -156,7 +183,6 @@ export default function DashboardPage() {
       });
 
       setProgress(45);
-      // 3️⃣ Generate scenes
       const sceneRes = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -171,7 +197,6 @@ export default function DashboardPage() {
       const { data: scenes } = await sceneRes.json();
 
       setProgress(70);
-      // 4️⃣ Generate scene images + videos
       const sceneResults = await Promise.all(
         scenes.map(async (s: SceneAPIData) => {
           const img = await fetch("/api/genImage", {
@@ -203,7 +228,6 @@ export default function DashboardPage() {
       );
 
       setProgress(95);
-      // 5️⃣ Stitch final video
       const stitch = await fetch("/api/stitch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -215,6 +239,8 @@ export default function DashboardPage() {
       });
       const { videoUrl } = await stitch.json();
 
+      // ✅ Store stitched video per chat
+      setVideoUrlsByChatId((prev) => ({ ...prev, [currentChatId]: videoUrl }));
       setStitchedVideoUrl(videoUrl);
       setProgress(100);
     } catch (e: any) {
@@ -224,7 +250,7 @@ export default function DashboardPage() {
     }
   }
 
-  // ✅ UI Render
+  // ✅ UI
   return (
     <div className="flex h-screen bg-gray-50 text-black">
       {/* Sidebar */}
@@ -246,10 +272,7 @@ export default function DashboardPage() {
               className={`group flex items-center justify-between p-3 rounded-lg cursor-pointer hover:bg-gray-800 transition ${
                 currentChatId === chat.id ? "bg-gray-800" : ""
               }`}
-              onClick={() => {
-                setCurrentChatId(chat.id);
-                loadFinalVideo(chat.id);
-              }}
+              onClick={() => handleChatClick(chat.id)}
             >
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <MessageSquare className="w-4 h-4 flex-shrink-0" />
@@ -308,7 +331,6 @@ export default function DashboardPage() {
             )}
           </div>
         ) : (
-          // ✅ Show stitched video cleanly after reload
           <div className="w-full flex justify-center items-center">
             <video
               src={stitchedVideoUrl}

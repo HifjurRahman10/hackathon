@@ -18,6 +18,12 @@ interface SceneData {
   videoPrompt?: string;
 }
 
+interface SceneAPIData {
+  id: string;
+  scene_image_prompt: string;
+  scene_video_prompt: string;
+}
+
 export default function DashboardPage() {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
@@ -111,10 +117,23 @@ export default function DashboardPage() {
     }
   }
 
-  // ✅ Main generation pipeline — parallelized
+  // ✅ Main generation pipeline — parallelized + one-prompt rule
   async function handleGenerate() {
     if (!userId || !currentChatId) {
       setError("Please create a chat first");
+      return;
+    }
+
+    // 🚫 Enforce one prompt per chat
+    const supabase = getBrowserSupabase();
+    const { data: existingScenes } = await supabase
+      .from("scenes")
+      .select("id")
+      .eq("chat_id", currentChatId)
+      .limit(1);
+
+    if (existingScenes && existingScenes.length > 0) {
+      setError("Only one prompt allowed per chat. Create a new chat to generate more.");
       return;
     }
 
@@ -178,7 +197,7 @@ export default function DashboardPage() {
 
       // 4️⃣ Generate scene images + videos in parallel
       setProgress(55);
-      const sceneTasks = scenesData.map(async (scene: any) => {
+      const sceneTasks = scenesData.map(async (scene: SceneAPIData) => {
         // Generate image
         const imgPromise = fetch("/api/genImage", {
           method: "POST",

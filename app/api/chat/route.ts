@@ -26,18 +26,15 @@ const schema = z.object({
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { prompt, mode, userId: supabaseUserId, chatId, character } = schema.parse(body);
+    const { prompt, mode, userId: supabaseUserId, chatId } = schema.parse(body);
 
-    // Get local user ID from supabase_id
     const { data: user } = await supabase
       .from("users")
       .select("id")
       .eq("supabase_id", supabaseUserId)
       .single();
 
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
+    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
     const userId = user.id;
     let systemPrompt = "";
@@ -205,21 +202,44 @@ OUTPUT FORMAT:
 ═══════════════════════════════════════════════════════════════
 
 Use this prompt to generate cinematic scene descriptions and video motions that maintain full character, visual, location, and narrative continuity across all 3 scenes, ensuring a logical story progression.
-`; }
+`;
+    }
 
-    const response = await openai.responses.create({
-      model: "gpt-5-nano",
-      input: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: prompt },
-      ],
-    });
+    async function getParsedResponse(): Promise<any> {
+      const response = await openai.responses.create({
+        model: "gpt-5-nano",
+        input: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: prompt },
+        ],
+      });
 
-    let text = response.output_text?.trim() || "{}";
-    text = text.replace(/[\x00-\x1F\x7F-\x9F]/g, ""); // remove control characters
-    const data = JSON.parse(text);
+      let text = response.output_text?.trim() || "{}";
+      text = text.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
 
-    // Save user message
+      try {
+        return JSON.parse(text);
+      } catch {
+        const retryResponse = await openai.responses.create({
+          model: "gpt-5-nano",
+          input: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content:
+                prompt +
+                "\nReturn only valid JSON following the required format.",
+            },
+          ],
+        });
+        let retryText = retryResponse.output_text?.trim() || "{}";
+        retryText = retryText.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
+        return JSON.parse(retryText);
+      }
+    }
+
+    const data = await getParsedResponse();
+
     await supabase.from("messages").insert({
       chat_id: chatId,
       user_id: userId,
@@ -227,17 +247,15 @@ Use this prompt to generate cinematic scene descriptions and video motions that 
       role: "user",
     });
 
-    // Save assistant response
     await supabase.from("messages").insert({
       chat_id: chatId,
       user_id: userId,
-      content: text,
+      content: JSON.stringify(data),
       role: "assistant",
     });
 
-    // Save character to database
     if (mode === "character" && data.name && data.image_prompt) {
-      const { data: charData, error: charError } = await supabase
+      const { data: charData } = await supabase
         .from("characters")
         .insert({
           chat_id: chatId,
@@ -246,17 +264,13 @@ Use this prompt to generate cinematic scene descriptions and video motions that 
         })
         .select()
         .single();
-
-      if (!charError && charData) {
-        data.id = charData.id;
-      }
+      if (charData) data.id = charData.id;
     }
 
-    // Save scenes to database
     if (mode === "scenes" && Array.isArray(data)) {
       const scenesWithIds = await Promise.all(
         data.map(async (scene, index) => {
-          const { data: sceneData, error: sceneError } = await supabase
+          const { data: sceneData } = await supabase
             .from("scenes")
             .insert({
               chat_id: chatId,
@@ -266,8 +280,7 @@ Use this prompt to generate cinematic scene descriptions and video motions that 
             })
             .select()
             .single();
-
-          return sceneError ? scene : { ...scene, id: sceneData.id };
+          return { ...scene, id: sceneData?.id };
         })
       );
       return NextResponse.json({ data: scenesWithIds });
@@ -275,10 +288,6 @@ Use this prompt to generate cinematic scene descriptions and video motions that 
 
     return NextResponse.json({ data });
   } catch (err: any) {
-    console.error("Chat API error:", err);
-    return NextResponse.json(
-      { error: err.message || "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

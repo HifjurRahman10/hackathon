@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getBrowserSupabase } from "@/lib/auth/supabase-browser";
 import { Plus, MessageSquare, Trash2 } from "lucide-react";
 
@@ -25,9 +25,12 @@ export default function DashboardPage() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 
-  // ✅ store stitched video for each chat separately
+  // ✅ map of chatId → stitched video
   const [videoByChat, setVideoByChat] = useState<Record<string, string | null>>({});
-  const [activeVideoUrl, setActiveVideoUrl] = useState<string | null>(null);
+  const [activeVideo, setActiveVideo] = useState<string | null>(null);
+
+  // Used to cancel stale async fetches
+  const activeChatRef = useRef<string | null>(null);
 
   // -------------------------------------------------------------
   // INITIAL LOAD
@@ -35,10 +38,11 @@ export default function DashboardPage() {
   useEffect(() => {
     (async () => {
       const supabase = getBrowserSupabase();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return setError("Please sign in first.");
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setError("Please sign in first.");
+        return;
+      }
       setUserId(user.id);
       await loadChats(user.id);
     })();
@@ -56,6 +60,7 @@ export default function DashboardPage() {
     if (list.length > 0) {
       const first = list[0];
       setCurrentChatId(first.id);
+      activeChatRef.current = first.id;
       await loadVideoForChat(first.id);
     } else {
       const resNew = await fetch("/api/chats", {
@@ -66,12 +71,13 @@ export default function DashboardPage() {
       const { chat } = await resNew.json();
       setChats([chat]);
       setCurrentChatId(chat.id);
+      activeChatRef.current = chat.id;
       setVideoByChat({ [chat.id]: null });
     }
   }
 
   // -------------------------------------------------------------
-  // LOAD FINAL VIDEO FOR A CHAT FROM SUPABASE
+  // LOAD FINAL VIDEO FOR SPECIFIC CHAT
   // -------------------------------------------------------------
   async function loadVideoForChat(chatId: string) {
     const supabase = getBrowserSupabase();
@@ -79,31 +85,32 @@ export default function DashboardPage() {
       .from("final_video")
       .select("video_url")
       .eq("chat_id", chatId)
-      .single();
+      .maybeSingle();
+
+    if (activeChatRef.current !== chatId) return; // prevent race overwrite
 
     const url = !error && data?.video_url ? data.video_url : null;
     setVideoByChat((prev) => ({ ...prev, [chatId]: url }));
-
-    // show immediately if this is the active chat
-    if (chatId === currentChatId) setActiveVideoUrl(url);
+    setActiveVideo(url);
   }
 
   // -------------------------------------------------------------
-  // CHAT SWITCH HANDLER
+  // CHAT SWITCH
   // -------------------------------------------------------------
   async function handleChatClick(chatId: string) {
     if (chatId === currentChatId) return;
     setCurrentChatId(chatId);
+    activeChatRef.current = chatId;
     setPrompt("");
     setError(null);
     setProgress(0);
 
-    // if cached
+    // Show cached instantly or fetch fresh
     const cached = videoByChat[chatId];
     if (cached !== undefined) {
-      setActiveVideoUrl(cached);
+      setActiveVideo(cached);
     } else {
-      setActiveVideoUrl(null);
+      setActiveVideo(null);
       await loadVideoForChat(chatId);
     }
   }
@@ -122,7 +129,8 @@ export default function DashboardPage() {
     setChats([chat, ...chats]);
     setVideoByChat((prev) => ({ ...prev, [chat.id]: null }));
     setCurrentChatId(chat.id);
-    setActiveVideoUrl(null);
+    activeChatRef.current = chat.id;
+    setActiveVideo(null);
     setPrompt("");
   }
 
@@ -143,26 +151,24 @@ export default function DashboardPage() {
     if (currentChatId === chatId) {
       const next = remaining[0];
       if (next) {
-        setCurrentChatId(next.id);
-        const cached = videoByChat[next.id] || null;
-        setActiveVideoUrl(cached);
-        if (cached === undefined) loadVideoForChat(next.id);
+        handleChatClick(next.id);
       } else {
         setCurrentChatId(null);
-        setActiveVideoUrl(null);
+        activeChatRef.current = null;
+        setActiveVideo(null);
       }
     }
   }
 
   // -------------------------------------------------------------
-  // MAIN GENERATION PIPELINE
+  // GENERATE PIPELINE
   // -------------------------------------------------------------
   async function handleGenerate() {
     if (!userId || !currentChatId) return setError("Please sign in first.");
     setLoading(true);
     setError(null);
     setProgress(0);
-    setActiveVideoUrl(null);
+    setActiveVideo(null);
 
     try {
       // 1️⃣ Character
@@ -253,9 +259,10 @@ export default function DashboardPage() {
       });
       const { videoUrl } = await stitch.json();
 
-      // ✅ store separately per chat
+      if (activeChatRef.current !== currentChatId) return; // safety
+
       setVideoByChat((prev) => ({ ...prev, [currentChatId]: videoUrl }));
-      setActiveVideoUrl(videoUrl);
+      setActiveVideo(videoUrl);
       setProgress(100);
     } catch (err: any) {
       console.error("Generation error:", err);
@@ -318,7 +325,7 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!activeVideoUrl ? (
+        {!activeVideo ? (
           <div className="w-full max-w-3xl">
             <h1 className="text-2xl font-semibold mb-4 text-center">
               Cinematic Scene Generator
@@ -349,8 +356,8 @@ export default function DashboardPage() {
         ) : (
           <div className="w-full flex justify-center items-center">
             <video
-              key={activeVideoUrl}
-              src={activeVideoUrl}
+              key={activeVideo}
+              src={activeVideo}
               controls
               autoPlay
               playsInline
